@@ -1,0 +1,23 @@
+# stockmate 웹 대시보드 (systemd)
+# 설치: sudo cp deploy/stockmate.service /etc/systemd/system/ && sudo systemctl enable --now stockmate
+# 사용자 이름이나 경로가 다르면 ubuntu와 /home/ubuntu/stockmate를 바꿔서 쓴다.
+
+[Unit]
+Description=stockmate web dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/stockmate
+# .env의 값이 환경변수로도 들어가서, 분석용 claude -p도 CLAUDE_CODE_OAUTH_TOKEN 등을 볼 수 있다.
+EnvironmentFile=/home/ubuntu/stockmate/.env
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Seoul
+# 외부에는 Tailscale serve나 Caddy(HTTPS)로만 노출한다.
+ExecStart=/home/ubuntu/.local/bin/uv run --frozen stock web --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

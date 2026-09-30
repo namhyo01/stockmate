@@ -1,0 +1,15 @@
+# 비밀 정보와 개인 데이터 (절대 커밋 금지)
+.env
+data/
+*.db
+*.csv
+!samples/*.csv
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 브라우저 테스트 캡처
+.playwright-mcp/

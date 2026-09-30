@@ -2,7 +2,17 @@
 
 t3a.micro는 메모리가 1GB라 스왑을 먼저 잡는다. 아래는 Ubuntu 24.04, 사용자 `ubuntu`, 설치 경로 `~/stockmate` 기준이다.
 
-## 0. 로컬에서 패키지 만들기
+## 0-1. EC2 인스턴스와 예산
+
+- 리전: 서울(ap-northeast-2)
+- AMI: **Ubuntu Server 24.04 LTS, 64비트(x86)** (t3a는 AMD x86이라 Arm AMI로는 선택할 수 없다)
+- 유형: t3a.micro, 스토리지: **gp3 20GiB**, 고급 → 크레딧 사양: **Standard** (Unlimited는 CPU 초과 사용분이 과금된다)
+- 키 페어: ED25519 `.pem`을 `~/.ssh/`에 두고 `chmod 400` (WSL에서는 /mnt/c 아래에 두면 권한이 적용되지 않는다)
+- 보안 그룹 `stockmate-sg`: 인바운드는 **SSH 22 / 내 IP 하나만**, HTTP·HTTPS·8000은 열지 않는다. Tailscale 설정 후에는 22번도 지운다.
+- 예상 비용(월, 대략): 인스턴스 약 $8.5 + EBS 약 $1.8 + 퍼블릭 IPv4 약 $3.6 ≈ **$14**
+- Budgets: 월 $20 비용 예산, 알림은 실제 50%·80%와 예측 100%, **실제 100%에서 EC2 인스턴스 중지 작업**. 비용 데이터는 몇 시간 늦게 반영된다.
+
+## 0-2. 로컬에서 패키지 만들기
 
 ```bash
 cd ~/work/ai/project/stock

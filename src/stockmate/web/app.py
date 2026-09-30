@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import secrets
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ from stockmate.db import session_scope
 from stockmate.market_data import CachedPrices, MarketDataError
 from stockmate.portfolio import PortfolioError
 from stockmate.report import build_snapshot
+from stockmate.web.snapshots import SnapshotStore
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -36,18 +39,40 @@ def require_login(credentials: HTTPBasicCredentials | None = Depends(_basic)) ->
         raise HTTPException(401, headers={"WWW-Authenticate": 'Basic realm="stockmate"'})
 
 
-app = FastAPI(title="stockmate", dependencies=[Depends(require_login)], docs_url=None, redoc_url=None)
-# 화면은 1분마다 시세를 다시 요청한다. 여러 탭을 열어도 한투 호출이 겹치지 않도록 잠깐 캐시한다.
 prices = CachedPrices(sync.price_provider, ttl=timedelta(seconds=30))
+
+
+def _build() -> dict[str, Any]:
+    with session_scope() as session:
+        return build_snapshot(session, prices)
+
+
+# 1분 넘은 스냅샷은 돌려준 뒤 뒤에서 새로 만든다.
+snapshots = SnapshotStore(_build, max_age=timedelta(minutes=1))
 runner = analysis.AnalysisRunner()
 # 서버 메모리가 작으므로 질문에 답하는 Claude도 한 번에 하나만 띄운다.
 _ask_lock = threading.Lock()
 
 
-def _snapshot() -> dict[str, Any]:
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # 누가 보고 있으면 1분마다, 15분 넘게 아무도 안 보면 10분마다 시세를 미리 받아 둔다.
+    snapshots.keep_warm(active=timedelta(minutes=15), busy_every=60, idle_every=600)
+    yield
+
+
+app = FastAPI(
+    title="stockmate",
+    dependencies=[Depends(require_login)],
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
+
+
+def _snapshot(fresh: bool = False) -> dict[str, Any]:
     try:
-        with session_scope() as session:
-            return build_snapshot(session, prices)
+        return snapshots.build() if fresh else snapshots.get()
     except MarketDataError as e:
         raise HTTPException(503, str(e)) from None
 
@@ -80,7 +105,7 @@ def refresh() -> dict[str, Any]:
         except (KisError, PortfolioError) as e:
             messages.append({"level": "error", "text": f"한국투자증권 동기화 실패: {e}"})
     prices.invalidate()
-    return {"messages": messages, "snapshot": _snapshot()}
+    return {"messages": messages, "snapshot": _snapshot(fresh=True)}
 
 
 def _analysis_state() -> dict[str, Any]:

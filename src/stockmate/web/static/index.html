@@ -678,7 +678,12 @@ function busy(btn, on, label) {
 }
 
 async function loadPrices() {
-  try { render(await api("/api/portfolio")); }
+  try {
+    const data = await api("/api/portfolio");
+    render(data);
+    // 서버가 오래된 스냅샷을 먼저 준 경우: 뒤에서 새로 만드는 중이니 잠시 뒤 다시 받는다
+    if (Date.now() - new Date(data.generated_at) > 90_000) setTimeout(loadPrices, 6000);
+  }
   catch (e) { toast(`시세를 불러오지 못했어요: ${e.message}`, "error"); $("live-text").textContent = "연결 끊김"; }
 }
 async function syncAll({ silent = false } = {}) {

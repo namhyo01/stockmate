@@ -54,6 +54,14 @@ data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_
 
 **토스 스크린샷 가져오기**: 토스 보유 종목 화면(평가금, 원 보기)에는 평균단가가 없다. `평균단가 = (평가금 − 손익) / 환율 / 수량`으로 역산하고(환율은 화면 상단 값), 실제 시세와 비교해서 티커를 검증한 다음 CSV로 만들어 `--replace`로 동기화한다. 첫 가져오기 예시는 `data/imports/toss_2026-09-30.csv`.
 
+## 배포 (AWS)
+
+- 서버: `ssh stockmate` (Tailscale 경유, AWS 보안 그룹의 인바운드 포트는 0개), 코드는 `~/stockmate`, 서비스는 `stockmate` (systemd)
+- 대시보드: https://<서버>.<tailnet>.ts.net (`tailscale serve`, Tailscale에 로그인한 기기에서만 열린다)
+- PC에서 고쳤다면: `git push server master` (서버 저장소가 `receive.denyCurrentBranch=updateInstead`라 작업 트리까지 바로 갱신된다) → `ssh stockmate 'sudo systemctl restart stockmate'`
+- 서버에서 직접 고쳤다면: 서버에서 커밋하고, PC에서는 `git pull server master`
+- 로그: `journalctl -u stockmate -f`
+
 ## 주의사항
 
 - KIS: 초당 20건 제한(코드에서 0.1초 간격 + EGW00201 재시도). 토큰 발급은 1분에 1번이라 `data/kis_token.json`에 캐시한다. **키를 재발급하면 이 파일을 지워야 한다.** 미국 종목의 거래소 코드는 `data/kis_exchanges.json`에 캐시한다.

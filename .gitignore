@@ -13,3 +13,6 @@ __pycache__/
 
 # 브라우저 테스트 캡처
 .playwright-mcp/
+
+# 이전 패키지에서 풀린 인수인계 자료 (Claude 메모리, 대화 원본)
+handoff/

@@ -26,16 +26,22 @@ class SnapshotStore:
         self._build_lock = threading.Lock()
         self._snapshot: Snapshot | None = None
         self._built_at: datetime | None = None
+        self._build_started: datetime | None = None  # 지금 스냅샷을 만들기 시작한 시각 (DB를 읽은 시점)
         self.last_viewed = datetime.min
 
     def build(self) -> Snapshot:
-        """지금 새로 만든다. 다른 스레드가 만드는 중이면 그 결과를 기다려서 쓴다."""
-        started = datetime.now()
+        """지금 새로 만든다. 기다리는 동안 다른 스레드가 '요청 뒤에 시작한' 빌드를 끝냈으면 그 결과를 쓴다.
+
+        끝난 시각이 아니라 시작한 시각으로 비교한다. 요청 전에 시작해서 요청 뒤에 끝난 빌드는
+        요청 직전의 DB 변경(예: 스크린샷 반영)을 못 봤을 수 있다. 예전에는 이 때문에 반영 직후 '비어 있음'이 보였다.
+        """
+        requested = datetime.now()
         with self._build_lock:
-            if self._built_at and self._built_at >= started:
-                return self._snapshot  # 기다리는 동안 다른 스레드가 이미 새로 만들었다
+            if self._build_started and self._build_started >= requested:
+                return self._snapshot
+            started = datetime.now()
             snapshot = self._builder()
-            self._snapshot, self._built_at = snapshot, datetime.now()
+            self._snapshot, self._built_at, self._build_started = snapshot, datetime.now(), started
             return snapshot
 
     def get(self) -> Snapshot:
@@ -57,14 +63,23 @@ class SnapshotStore:
         except Exception:  # 백그라운드 갱신 실패는 다음 주기에 다시 시도한다
             log.exception("스냅샷 갱신 실패")
 
-    def keep_warm(self, active: timedelta, busy_every: float, idle_every: float) -> None:
-        """누가 보고 있으면(active 안에 요청이 있었으면) 자주, 아니면 드물게 미리 갱신한다."""
+    def keep_warm(
+        self, active: timedelta, busy_every: float, idle_every: float, check_every: float = 2
+    ) -> None:
+        """누가 보고 있으면(active 안에 요청이 있었으면) 자주, 아니면 드물게 미리 갱신한다.
+
+        긴 주기로 통째로 자면 그사이 누가 화면을 열어도 갱신이 늦어지므로, 짧게 자주 깨서 확인한다.
+        """
+
+        def due() -> bool:
+            viewed_recently = datetime.now() - self.last_viewed < active
+            every = busy_every if viewed_recently else idle_every
+            return self._built_at is None or datetime.now() - self._built_at >= timedelta(seconds=every)
 
         def loop() -> None:
-            self._build_quietly()
             while True:
-                viewed_recently = datetime.now() - self.last_viewed < active
-                time.sleep(busy_every if viewed_recently else idle_every)
-                self._build_quietly()
+                if due():
+                    self._build_quietly()
+                time.sleep(check_every)
 
         threading.Thread(target=loop, daemon=True, name="snapshot-warmer").start()

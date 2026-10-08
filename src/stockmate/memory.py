@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from stockmate import ideas, plans
 from stockmate.config import settings
 from stockmate.models import Recommendation
 
@@ -102,6 +103,8 @@ class ParsedReport:
     markdown: str
     recommendations: list[dict[str, Any]] = field(default_factory=list)
     lessons: list[str] = field(default_factory=list)
+    actions: dict[str, Any] | None = None
+    ideas: list[dict[str, Any]] | None = None
 
 
 def parse_report(text: str) -> ParsedReport:
@@ -117,6 +120,8 @@ def parse_report(text: str) -> ParsedReport:
         text[: match.start()].strip(),
         [r for r in data.get("recommendations", []) if isinstance(r, dict) and r.get("symbol")],
         [str(x) for x in data.get("lessons", []) if str(x).strip()],
+        data.get("actions") if isinstance(data.get("actions"), dict) else None,
+        data.get("ideas") if isinstance(data.get("ideas"), list) else None,
     )
 
 
@@ -272,6 +277,12 @@ def build_context(session: Session, snapshot: dict[str, Any]) -> str:
             )
     else:
         parts.append("- 아직 없음")
+
+    parts.append("### 진행 중인 매매 계획 (#번호는 actions 블록의 done / cancel에 쓴다)")
+    parts.append(plans.context_text(session))
+
+    parts.append("### AI가 추천한 종목 (추천 탭에 있는 것)")
+    parts.append(ideas.context_text(session))
 
     convs = recent_conversations()
     parts.append("### 최근 대화")

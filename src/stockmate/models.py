@@ -87,8 +87,10 @@ class Account(Base):
     kind: Mapped[AccountKind] = mapped_column(_enum(AccountKind), default=AccountKind.GENERAL)
     # 매달 넣는 금액 (원). 적립식 매수 계획에 쓴다.
     monthly_contribution: Mapped[Decimal | None] = mapped_column(DecimalText())
-    # 예수금 (원). API로 동기화하는 계좌만 채워진다.
+    # 원화 예수금. 증권사 API나 스크린샷(MMF 등 현금성 상품 포함)으로 채워진다.
     cash: Mapped[Decimal | None] = mapped_column(DecimalText())
+    # 달러 예수금 (토스처럼 달러를 따로 들고 있는 계좌). 원화 환산은 볼 때의 환율로 한다.
+    cash_usd: Mapped[Decimal | None] = mapped_column(DecimalText())
     synced_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -127,6 +129,9 @@ class Holding(Base):
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id"))
     quantity: Mapped[Decimal] = mapped_column(DecimalText())
     avg_cost: Mapped[Decimal] = mapped_column(DecimalText())
+    # 외화 종목을 살 때의 평균 환율 (1 외화 = ? 원). 원화 투자 원금 = 수량 × 평균단가 × avg_fx 라서
+    # 원화 손익에 환율 손익까지 들어간다. 모르면 비워 두고 현재 환율로 계산한다.
+    avg_fx: Mapped[Decimal | None] = mapped_column(DecimalText())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
@@ -174,3 +179,63 @@ class Recommendation(Base):
     watch_low: Mapped[Decimal | None] = mapped_column(DecimalText())
     watch_high: Mapped[Decimal | None] = mapped_column(DecimalText())
 
+
+
+class PlanItem(Base):
+    """Claude와 정한 매매 계획 한 건 (무엇을, 얼마나, 어떤 가격·시기에 사고팔지).
+
+    대화나 분석 응답의 actions 블록에서 생기고, 사용자가 '했어요'/'취소'로 닫는다.
+    """
+
+    __tablename__ = "plan_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | rebuild
+    side: Mapped[Side] = mapped_column(_enum(Side))
+    name: Mapped[str] = mapped_column(String(100))
+    symbol: Mapped[str | None] = mapped_column(String(20))
+    market: Mapped[Market | None] = mapped_column(_enum(Market))
+    account: Mapped[str | None] = mapped_column(String(50))
+    quantity: Mapped[Decimal | None] = mapped_column(DecimalText())
+    amount_krw: Mapped[Decimal | None] = mapped_column(DecimalText())
+    # 이 가격 범위에 들어오면 실행 (종목 통화 기준, 한쪽만 있어도 된다)
+    price_low: Mapped[Decimal | None] = mapped_column(DecimalText())
+    price_high: Mapped[Decimal | None] = mapped_column(DecimalText())
+    timing: Mapped[str | None] = mapped_column(String(200))
+    # 실행할 날짜 범위. 계획 탭에서 시기별로 묶는 데 쓴다 (날짜와 상관없는 조건 계획은 비어 있다)
+    due_from: Mapped[date | None] = mapped_column(Date)
+    due_to: Mapped[date | None] = mapped_column(Date)
+    # AI가 날짜를 정했는지 (날짜가 비어 있어도 '조건 계획'으로 판단을 마쳤으면 True). 같은 계획을 다시 판단하지 않게 한다
+    due_checked: Mapped[bool] = mapped_column(default=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | done | canceled | replaced
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class Idea(Base):
+    """AI가 새로 추천한 종목 (보유하지 않은 종목 위주). 추천 탭에 카드로 보인다.
+
+    추천 당시 가격을 남겨서 '추천 뒤 얼마나 움직였는지'를 보여준다.
+    """
+
+    __tablename__ = "ideas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | extract
+    name: Mapped[str] = mapped_column(String(100))
+    symbol: Mapped[str | None] = mapped_column(String(20))
+    market: Mapped[Market | None] = mapped_column(_enum(Market))
+    account: Mapped[str | None] = mapped_column(String(50))  # 담을 계좌
+    summary: Mapped[str | None] = mapped_column(String(300))  # 한 줄 요약
+    thesis: Mapped[str | None] = mapped_column(String(3000))  # 추천 이유 (줄바꿈으로 여러 개)
+    risks: Mapped[str | None] = mapped_column(String(2000))
+    overlap: Mapped[str | None] = mapped_column(String(1000))  # 가진 종목과 겹치는 정도
+    entry_low: Mapped[Decimal | None] = mapped_column(DecimalText())
+    entry_high: Mapped[Decimal | None] = mapped_column(DecimalText())
+    price_at: Mapped[Decimal | None] = mapped_column(DecimalText())  # 추천 당시 가격 (처음 조회한 값)
+    sources: Mapped[str | None] = mapped_column(String(4000))  # JSON [{title, url}]
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | dismissed | replaced

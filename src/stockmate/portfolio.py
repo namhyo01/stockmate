@@ -11,7 +11,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from stockmate.market_data import PriceProvider
+from stockmate.market_data import PriceProvider, previous_closes
 from stockmate.models import Account, AccountKind, Broker, Holding, Instrument, Market, Side, Trade
 
 ZERO = Decimal(0)
@@ -27,6 +27,12 @@ class PortfolioError(Exception):
 
 def detect_market(symbol: str) -> Market:
     return Market.KRX if _KRX_SYMBOL.match(symbol.strip().upper()) else Market.US
+
+
+def normalize_symbol(symbol: str) -> str:
+    """티커 표기를 맞춘다. 미국 클래스주는 BRK.B 대신 시세 조회에 쓰는 BRK-B로 쓴다."""
+    symbol = symbol.strip().upper().replace(" ", "")
+    return symbol if detect_market(symbol) is Market.KRX else symbol.replace(".", "-").replace("/", "-")
 
 
 # ── 계좌 ──────────────────────────────────────────────
@@ -105,8 +111,12 @@ def set_holding(
     instrument: Instrument,
     quantity: Decimal,
     avg_cost: Decimal,
+    avg_fx: Decimal | None = None,
 ) -> Holding | None:
-    """잔고를 주어진 값으로 덮어쓴다. 수량이 0이면 잔고를 지우고 None을 돌려준다."""
+    """잔고를 주어진 값으로 덮어쓴다. 수량이 0이면 잔고를 지우고 None을 돌려준다.
+
+    avg_fx(매입 평균 환율)는 주어졌을 때만 바꾸고, None이면 기존 값을 그대로 둔다.
+    """
     if quantity < 0 or avg_cost < 0:
         raise PortfolioError("수량과 평균단가는 음수일 수 없어요.")
     holding = _get_holding(session, account, instrument)
@@ -115,11 +125,15 @@ def set_holding(
             account.holdings.remove(holding)
         return None
     if holding is None:
-        holding = Holding(account=account, instrument=instrument, quantity=quantity, avg_cost=avg_cost)
+        holding = Holding(
+            account=account, instrument=instrument, quantity=quantity, avg_cost=avg_cost, avg_fx=avg_fx
+        )
         session.add(holding)
     else:
         holding.quantity = quantity
         holding.avg_cost = avg_cost
+        if avg_fx is not None:
+            holding.avg_fx = avg_fx
     session.flush()
     return holding
 
@@ -174,6 +188,33 @@ def record_trade(
     return trade
 
 
+def blend_avg_fx(
+    old: Holding | None, quantity: Decimal, avg_cost: Decimal, fx_now: Decimal
+) -> Decimal:
+    """증권사가 알려준 새 수량·평균단가에 맞춰 매입 평균 환율을 갱신한다 (원화 투자 원금을 보존).
+
+    - 처음 보는 종목: 지금 환율에 샀다고 본다 (동기화가 자주 돌아서 실제 매수 시점과 가깝다).
+    - 수량이 늘었다: 기존 원화 원금 + 늘어난 달러 원금 × 지금 환율.
+    - 수량이 같다: 원화 원금을 그대로 둔다 (평균단가 표기만 바뀐 경우 포함).
+    - 수량이 줄었다(매도): 원화 원금을 수량 비율만큼 줄인다. 평균 환율은 그대로다.
+    """
+    if old is None or old.quantity <= 0 or quantity <= 0 or avg_cost <= 0:
+        return fx_now
+    old_fx = old.avg_fx or fx_now
+    old_cost = old.quantity * old.avg_cost
+    old_krw = old_cost * old_fx
+    if quantity > old.quantity:
+        added = quantity * avg_cost - old_cost
+        if added <= 0:  # 평균단가가 크게 바뀐 이상한 경우: 늘어난 수량만큼만 지금 환율로 더한다
+            added = (quantity - old.quantity) * avg_cost
+        krw = old_krw + added * fx_now
+    elif quantity == old.quantity:
+        krw = old_krw
+    else:
+        krw = old_krw * quantity / old.quantity
+    return (krw / (quantity * avg_cost)).quantize(AVG_COST_PRECISION)
+
+
 # ── 평가 ──────────────────────────────────────────────
 
 
@@ -187,6 +228,8 @@ class Position:
     avg_cost: Decimal
     price: Decimal | None
     fx_rate: Decimal
+    cost_fx_rate: Decimal | None = None  # 매입 평균 환율. 없으면 현재 환율(fx_rate)로 원금을 계산한다
+    prev_close: Decimal | None = None  # 전일 종가 (오늘 등락 계산용)
 
     @property
     def cost(self) -> Decimal:
@@ -198,7 +241,7 @@ class Position:
 
     @property
     def cost_krw(self) -> Decimal:
-        return self.cost * self.fx_rate
+        return self.cost * (self.cost_fx_rate or self.fx_rate)
 
     @property
     def value_krw(self) -> Decimal | None:
@@ -214,6 +257,20 @@ class Position:
             return None
         return self.pnl_krw / self.cost_krw * 100
 
+    @property
+    def day_change_pct(self) -> Decimal | None:
+        """오늘 등락률: 전일 종가 대비 현재가."""
+        if self.price is None or not self.prev_close:
+            return None
+        return (self.price / self.prev_close - 1) * 100
+
+    @property
+    def day_pnl_krw(self) -> Decimal | None:
+        """오늘 평가손익 변화 (원화, 지금 환율 기준). 오늘 새로 산 수량도 전일 종가 기준으로 계산한다."""
+        if self.price is None or not self.prev_close:
+            return None
+        return (self.price - self.prev_close) * self.quantity * self.fx_rate
+
 
 @dataclass(frozen=True)
 class Totals:
@@ -222,10 +279,17 @@ class Totals:
     cost_krw: Decimal
     value_krw: Decimal
     count: int
+    day_pnl_krw: Decimal = ZERO  # 전일 종가를 아는 종목만 합산한다
 
     @property
     def pnl_krw(self) -> Decimal:
         return self.value_krw - self.cost_krw
+
+    @property
+    def day_pct(self) -> Decimal | None:
+        """오늘 등락률: 오늘 변화 / 어제 평가금."""
+        before = self.value_krw - self.day_pnl_krw
+        return None if before <= 0 else self.day_pnl_krw / before * 100
 
     @property
     def pnl_pct(self) -> Decimal | None:
@@ -239,7 +303,9 @@ def build_positions(session: Session, provider: PriceProvider) -> list[Position]
         .join(Holding.instrument)
         .order_by(Account.name, Instrument.market, Instrument.symbol)
     ).all()
-    prices = provider.last_prices({(h.instrument.market, h.instrument.symbol) for h in holdings})
+    keys = {(h.instrument.market, h.instrument.symbol) for h in holdings}
+    prices = provider.last_prices(keys)
+    prev = previous_closes(provider, keys)
     fx_rates = {c: provider.fx_to_krw(c) for c in {h.instrument.currency for h in holdings}}
     return [
         Position(
@@ -249,6 +315,8 @@ def build_positions(session: Session, provider: PriceProvider) -> list[Position]
             avg_cost=h.avg_cost,
             price=prices.get((h.instrument.market, h.instrument.symbol)),
             fx_rate=fx_rates[h.instrument.currency],
+            cost_fx_rate=h.avg_fx if h.instrument.currency != "KRW" else None,
+            prev_close=prev.get((h.instrument.market, h.instrument.symbol)),
         )
         for h in holdings
     ]
@@ -260,6 +328,7 @@ def totals(positions: Iterable[Position]) -> Totals:
         cost_krw=sum((p.cost_krw for p in priced), ZERO),
         value_krw=sum((p.value_krw for p in priced), ZERO),
         count=len(priced),
+        day_pnl_krw=sum((p.day_pnl_krw for p in priced if p.day_pnl_krw is not None), ZERO),
     )
 
 

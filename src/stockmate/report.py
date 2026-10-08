@@ -9,9 +9,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from stockmate import portfolio
+from stockmate import plans, portfolio, sync
 from stockmate.market_data import PriceProvider
-from stockmate.models import Account, Broker, Instrument, Market
+from stockmate.models import Account, Instrument, Market
 from stockmate.portfolio import ZERO, Totals
 
 # 국내 상장 ETF는 이름으로 실제 투자 지역을 추정한다 (예: TIGER 미국S&P500 → 미국).
@@ -46,6 +46,8 @@ def _totals(t: Totals) -> dict[str, Any]:
         "value": _num(t.value_krw),
         "pnl": _num(t.pnl_krw),
         "pnl_pct": _num(t.pnl_pct),
+        "day_pnl": _num(t.day_pnl_krw),
+        "day_pct": _num(t.day_pct),
         "count": t.count,
     }
 
@@ -60,7 +62,27 @@ def build_snapshot(session: Session, provider: PriceProvider) -> dict[str, Any]:
     grand = portfolio.totals(positions)
     by_account = portfolio.group_totals(positions, lambda p: p.account.id)
     by_region = portfolio.group_totals(positions, lambda p: exposure_region(p.instrument))
-    cash = sum((a.cash or ZERO for a in accounts), ZERO)
+    usd_krw = provider.fx_to_krw("USD") if any(a.cash_usd for a in accounts) else None
+
+    def cash_of(a: Account) -> Decimal:
+        """계좌 현금의 원화 합계: 원화 예수금 + 달러 예수금 × 지금 환율."""
+        return (a.cash or ZERO) + ((a.cash_usd or ZERO) * usd_krw if usd_krw else ZERO)
+
+    cash = sum((cash_of(a) for a in accounts), ZERO)
+
+    open_plans = plans.open_items(session)
+
+    def plans_for(p: portfolio.Position) -> list[dict[str, Any]]:
+        """이 보유 종목에 걸린 열린 매매 계획 (계좌를 정한 계획은 그 계좌에서만)."""
+        return [
+            {
+                k: v
+                for k, v in plans.item_dict(item, p.price).items()
+                if k in ("id", "side", "quantity", "amount_krw", "price_low", "price_high", "timing", "condition", "gap_pct")
+            }
+            for item in open_plans
+            if item.symbol == p.instrument.symbol and item.account in (None, p.account.name)
+        ]
 
     def weight(value: Decimal | None) -> float | None:
         if value is None or not grand.value_krw:
@@ -71,7 +93,7 @@ def build_snapshot(session: Session, provider: PriceProvider) -> dict[str, Any]:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "fx": (
             {"USD": _num(provider.fx_to_krw("USD"))}
-            if any(p.instrument.currency == "USD" for p in positions)
+            if usd_krw or any(p.instrument.currency == "USD" for p in positions)
             else {}
         ),
         "total": {**_totals(grand), "cash": _num(cash), "assets": _num(grand.value_krw + cash)},
@@ -84,9 +106,11 @@ def build_snapshot(session: Session, provider: PriceProvider) -> dict[str, Any]:
                 "kind": a.kind.value,
                 "kind_label": a.kind.label,
                 "monthly_contribution": _num(a.monthly_contribution),
-                "cash": _num(a.cash),
+                "cash": _num(cash_of(a)) if a.cash is not None or a.cash_usd else None,
+                "cash_krw": _num(a.cash),
+                "cash_usd": _num(a.cash_usd),
                 "synced_at": a.synced_at.isoformat(timespec="minutes") if a.synced_at else None,
-                "sync_method": "api" if a.broker is Broker.KIS else "screenshot",
+                "sync_method": "api" if sync.api_synced(a) else "screenshot",
                 **_totals(by_account.get(a.id, _EMPTY)),
             }
             for a in accounts
@@ -113,7 +137,11 @@ def build_snapshot(session: Session, provider: PriceProvider) -> dict[str, Any]:
                 "value_krw": _num(p.value_krw),
                 "pnl_krw": _num(p.pnl_krw),
                 "pnl_pct": _num(p.pnl_pct),
+                "prev_close": _num(p.prev_close),
+                "day_change_pct": _num(p.day_change_pct),
+                "day_pnl_krw": _num(p.day_pnl_krw),
                 "weight": weight(p.value_krw),
+                "plans": plans_for(p),
             }
             for p in positions
         ],

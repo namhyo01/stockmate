@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from stockmate import importers, portfolio, sync
 from stockmate.brokers.kis import KisError
+from stockmate.brokers.toss import TossError
 from stockmate.config import settings
 from stockmate.db import session_scope
 from stockmate.market_data import MarketDataError, lookup_name
@@ -49,7 +50,7 @@ NameOpt = Annotated[str | None, typer.Option("--name", help="생략하면 자동
 def main() -> None:
     try:
         app()
-    except (PortfolioError, MarketDataError, KisError) as e:
+    except (PortfolioError, MarketDataError, KisError, TossError) as e:
         console.print(f"[bold red]오류:[/] {e}")
         raise SystemExit(1) from None
 
@@ -301,6 +302,25 @@ def sync_kis(
     console.print(
         f"✅ {result.account.name}: 국내 {result.domestic}개, 해외 {result.overseas}개 종목, "
         f"예수금 {_money(result.account.cash)}원 동기화 완료"
+    )
+    if result.removed:
+        console.print(f"🗑️  더 이상 보유하지 않아 삭제한 종목: {', '.join(result.removed)}")
+    for warning in result.warnings:
+        console.print(f"[yellow]⚠️ {warning}[/]")
+
+
+@sync_app.command("toss")
+def sync_toss(
+    account: Annotated[str, typer.Option("--account", "-a", help="없으면 새로 만든다")] = "토스",
+) -> None:
+    """토스증권 보유 종목(평균단가 포함)과 주문 가능 현금을 가져와서 계좌를 통째로 동기화한다."""
+    with session_scope() as session, console.status("토스증권에서 잔고를 가져오는 중..."):
+        result = sync.sync_toss(session, account)
+    if result.created:
+        console.print(f"🆕 {result.account.name} 계좌를 새로 만들었어요.")
+    console.print(
+        f"✅ {result.account.name}: 국내 {result.domestic}개, 해외 {result.overseas}개 종목, "
+        f"주문 가능 현금 원화 {_money(result.account.cash)}원, 달러 ${result.account.cash_usd or 0:,.2f} 동기화 완료"
     )
     if result.removed:
         console.print(f"🗑️  더 이상 보유하지 않아 삭제한 종목: {', '.join(result.removed)}")

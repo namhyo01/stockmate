@@ -57,3 +57,26 @@ def test_invalidate_during_fetch_does_not_drop_prices():
     release.set()
     worker.join(); invalidator.join()
     assert result == {KEY: D(70000)}
+
+
+def test_cached_prices_keep_previous_closes_until_invalidated():
+    class WithPrev(Counting):
+        def previous_closes(self, keys):
+            return {k: D(68000) for k in keys if k in self.prices}
+
+    inner = WithPrev({KEY: D(70000)})
+    cache = CachedPrices(lambda: inner, ttl=timedelta(minutes=1))
+    cache.last_prices([KEY])
+    assert cache.previous_closes([KEY]) == {KEY: D(68000)}
+    cache.invalidate()
+    assert cache.previous_closes([KEY]) == {}
+
+
+def test_public_market_data_remembers_last_two_closes():
+    from stockmate.market_data import PublicMarketData
+
+    data, prices = PublicMarketData(), {}
+    data._remember(prices, KEY, [D(68000), D(70000)])
+    data._remember(prices, (Market.US, "NEW"), [D(10)])  # 상장 첫날: 전일 종가 없음
+    assert prices == {KEY: D(70000), (Market.US, "NEW"): D(10)}
+    assert data.previous_closes([KEY, (Market.US, "NEW")]) == {KEY: D(68000)}

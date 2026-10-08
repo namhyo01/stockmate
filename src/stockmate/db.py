@@ -12,7 +12,11 @@ from stockmate.models import Base
 _engine: Engine | None = None
 
 # create_all은 이미 있는 테이블에 컬럼을 추가하지 않으므로, 나중에 생긴 컬럼은 여기서 보충한다.
-_ADDED_COLUMNS = {"accounts": {"cash": "VARCHAR", "synced_at": "DATETIME"}}
+_ADDED_COLUMNS = {
+    "accounts": {"cash": "VARCHAR", "synced_at": "DATETIME", "cash_usd": "VARCHAR"},
+    "holdings": {"avg_fx": "VARCHAR"},
+    "plan_items": {"due_from": "DATE", "due_to": "DATE", "due_checked": "BOOLEAN DEFAULT 0"},
+}
 
 
 def _add_missing_columns(engine: Engine) -> None:

@@ -37,6 +37,15 @@ class PriceProvider(Protocol):
         ...
 
 
+def previous_closes(provider: object, keys: Iterable[Key]) -> dict[Key, Decimal]:
+    """전일 종가 (오늘 등락 계산용). 제공자가 지원하지 않으면 빈 dict.
+
+    last_prices()를 부를 때 함께 받아 둔 값을 돌려주므로 last_prices() 다음에 부른다.
+    """
+    method = getattr(provider, "previous_closes", None)
+    return method(keys) if method else {}
+
+
 def _to_decimal(value: float) -> Decimal:
     return Decimal(str(round(float(value), 4)))
 
@@ -46,19 +55,30 @@ class PublicMarketData:
 
     def __init__(self) -> None:
         self._fx_cache: dict[str, Decimal] = {"KRW": Decimal(1)}
+        self._prev: dict[Key, Decimal] = {}
 
     def last_prices(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
         keys = set(keys)
         prices: dict[Key, Decimal] = {}
         krx_symbols = sorted(symbol for market, symbol in keys if market is Market.KRX)
         with ThreadPoolExecutor(max_workers=6) as pool:
-            for symbol, price in zip(krx_symbols, pool.map(self._krx_price, krx_symbols)):
-                if price is not None:
-                    prices[(Market.KRX, symbol)] = price
+            for symbol, closes in zip(krx_symbols, pool.map(self._krx_closes, krx_symbols)):
+                self._remember(prices, (Market.KRX, symbol), closes)
         us_symbols = sorted(symbol for market, symbol in keys if market is Market.US)
         if us_symbols:
-            prices.update({(Market.US, s): p for s, p in self._us_prices(us_symbols).items()})
+            for symbol, closes in self._us_closes(us_symbols).items():
+                self._remember(prices, (Market.US, symbol), closes)
         return prices
+
+    def previous_closes(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
+        return {k: self._prev[k] for k in keys if k in self._prev}
+
+    def _remember(self, prices: dict[Key, Decimal], key: Key, closes: list[Decimal]) -> None:
+        """최근 종가 목록에서 현재가(마지막)와 전일 종가(그 앞)를 기억한다."""
+        if closes:
+            prices[key] = closes[-1]
+        if len(closes) >= 2:
+            self._prev[key] = closes[-2]
 
     def fx_to_krw(self, currency: str) -> Decimal:
         if currency not in self._fx_cache:
@@ -67,7 +87,7 @@ class PublicMarketData:
             self._fx_cache[currency] = self._usd_krw()
         return self._fx_cache[currency]
 
-    def _krx_price(self, symbol: str) -> Decimal | None:
+    def _krx_closes(self, symbol: str) -> list[Decimal]:
         import FinanceDataReader as fdr
 
         start = dt.date.today() - dt.timedelta(days=14)
@@ -75,10 +95,10 @@ class PublicMarketData:
             closes = fdr.DataReader(symbol, start)["Close"].dropna()
         except Exception as e:
             log.warning("국내 시세 조회 실패 %s: %s", symbol, e)
-            return None
-        return None if closes.empty else _to_decimal(closes.iloc[-1])
+            return []
+        return [_to_decimal(v) for v in closes.iloc[-2:]]
 
-    def _us_prices(self, symbols: list[str]) -> dict[str, Decimal]:
+    def _us_closes(self, symbols: list[str]) -> dict[str, list[Decimal]]:
         import yfinance as yf
 
         try:
@@ -89,7 +109,7 @@ class PublicMarketData:
         result = {}
         for symbol in symbols:
             if symbol in closes and not (series := closes[symbol].dropna()).empty:
-                result[symbol] = _to_decimal(series.iloc[-1])
+                result[symbol] = [_to_decimal(v) for v in series.iloc[-2:]]
         return result
 
     def _usd_krw(self) -> Decimal:
@@ -129,6 +149,7 @@ class CachedPrices:
         with self._lock:
             self._inner = self._factory()
             self._prices: dict[Key, Decimal] = {}
+            self._prev: dict[Key, Decimal] = {}
             self._fx: dict[str, Decimal] = {}
             self.fetched_at: dt.datetime | None = None
 
@@ -142,8 +163,13 @@ class CachedPrices:
             self._refresh_if_expired()
             if missing := keys - self._prices.keys():
                 self._prices.update(self._inner.last_prices(missing))
+                self._prev.update(previous_closes(self._inner, missing))
                 self.fetched_at = self.fetched_at or dt.datetime.now()
             return {k: self._prices[k] for k in keys if k in self._prices}
+
+    def previous_closes(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
+        with self._lock:
+            return {k: self._prev[k] for k in keys if k in self._prev}
 
     def fx_to_krw(self, currency: str) -> Decimal:
         with self._lock:

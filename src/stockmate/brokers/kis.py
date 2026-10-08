@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 
 from stockmate.importers import HoldingRow
-from stockmate.market_data import Key, PriceProvider
+from stockmate.market_data import Key, PriceProvider, previous_closes
 from stockmate.models import Market
 
 log = logging.getLogger(__name__)
@@ -214,25 +214,25 @@ class KisClient:
 
     # ── 시세 ──────────────────────────────────────────
 
-    def domestic_price(self, symbol: str) -> Decimal | None:
-        """국내 현재가 (주식현재가 시세, FHKST01010100)."""
+    def domestic_quote(self, symbol: str) -> tuple[Decimal | None, Decimal | None]:
+        """국내 (현재가, 전일 종가) (주식현재가 시세, FHKST01010100). stck_sdpr는 기준가(전일 종가)."""
         body, _ = self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-price",
             "FHKST01010100",
             {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
         )
-        price = Decimal(body.get("output", {}).get("stck_prpr") or 0)
-        return price or None
+        output = body.get("output", {})
+        return _positive(output.get("stck_prpr")), _positive(output.get("stck_sdpr"))
 
-    def overseas_price(self, exchange: str, symbol: str) -> Decimal | None:
-        """해외 현재가 (해외주식 현재체결가, HHDFS00000300). 해당 거래소에 없는 종목이면 None."""
+    def overseas_quote(self, exchange: str, symbol: str) -> tuple[Decimal | None, Decimal | None]:
+        """해외 (현재가, 전일 종가) (해외주식 현재체결가, HHDFS00000300). 해당 거래소에 없으면 현재가가 None."""
         body, _ = self._get(
             "/uapi/overseas-price/v1/quotations/price",
             "HHDFS00000300",
             {"AUTH": "", "EXCD": exchange, "SYMB": symbol},
         )
-        price = Decimal(body.get("output", {}).get("last") or 0)
-        return price or None
+        output = body.get("output", {})
+        return _positive(output.get("last")), _positive(output.get("base"))
 
 
 class KisMarketData:
@@ -245,6 +245,7 @@ class KisMarketData:
         self._client = client
         self._fallback = fallback
         self._exchange_cache = exchange_cache
+        self._prev: dict[Key, Decimal] = {}
         try:
             self._exchanges: dict[str, str] = json.loads(exchange_cache.read_text())
         except (FileNotFoundError, ValueError):
@@ -255,30 +256,41 @@ class KisMarketData:
         prices: dict[Key, Decimal] = {}
         for market, symbol in sorted(keys):
             try:
-                price = (
-                    self._client.domestic_price(symbol)
+                price, prev = (
+                    self._client.domestic_quote(symbol)
                     if market is Market.KRX
-                    else self._us_price(symbol)
+                    else self._us_quote(symbol)
                 )
             except (KisError, httpx.HTTPError) as e:
                 log.warning("한투 시세 조회 실패 %s: %s", symbol, e)
-                price = None
+                price = prev = None
             if price is not None:
                 prices[(market, symbol)] = price
+                if prev is not None:
+                    self._prev[(market, symbol)] = prev
         if missing := keys - prices.keys():
             prices.update(self._fallback.last_prices(missing))
+            self._prev.update(previous_closes(self._fallback, missing))
         return prices
+
+    def previous_closes(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
+        return {k: self._prev[k] for k in keys if k in self._prev}
 
     def fx_to_krw(self, currency: str) -> Decimal:
         return self._fallback.fx_to_krw(currency)
 
-    def _us_price(self, symbol: str) -> Decimal | None:
+    def _us_quote(self, symbol: str) -> tuple[Decimal | None, Decimal | None]:
         known = self._exchanges.get(symbol)
         for exchange in ([known] if known else []) + [e for e in US_EXCHANGES if e != known]:
-            price = self._client.overseas_price(exchange, symbol)
+            price, prev = self._client.overseas_quote(exchange, symbol)
             if price is not None:
                 if exchange != known:
                     self._exchanges[symbol] = exchange
                     self._exchange_cache.write_text(json.dumps(self._exchanges, indent=1))
-                return price
-        return None
+                return price, prev
+        return None, None
+
+
+def _positive(text: str | None) -> Decimal | None:
+    value = Decimal(text or 0)
+    return value if value > 0 else None

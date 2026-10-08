@@ -32,6 +32,7 @@ class HoldingRow:
     avg_cost: Decimal
     name: str | None = None
     market: Market | None = None
+    avg_fx: Decimal | None = None  # 외화 종목의 매입 평균 환율 (모르면 None: 기존 값 유지)
 
 
 @dataclass
@@ -79,7 +80,7 @@ def import_holdings(
     result = ImportResult()
     for row in rows:
         instrument = get_or_create_instrument(session, row.symbol, row.market, row.name)
-        set_holding(session, account, instrument, row.quantity, row.avg_cost)
+        set_holding(session, account, instrument, row.quantity, row.avg_cost, row.avg_fx)
         result.imported.append(instrument)
 
     if replace:

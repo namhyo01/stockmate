@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from sqlalchemy.orm import Session
 
 from stockmate import importers, portfolio
 from stockmate.brokers.kis import KisClient, KisError, KisMarketData
+from stockmate.brokers.toss import TossClient, TossError
 from stockmate.config import settings
 from stockmate.market_data import PriceProvider, PublicMarketData
-from stockmate.models import Account, AccountKind, Broker
+from stockmate.models import Account, AccountKind, Broker, Market
 from stockmate.portfolio import PortfolioError
 
 
@@ -79,6 +80,64 @@ def sync_kis(
         account=account,
         domestic=len(domestic),
         overseas=len(overseas),
+        created=created,
+        removed=[i.display_name for i in result.removed],
+        warnings=warnings,
+    )
+
+
+def toss_configured() -> bool:
+    return bool(settings.toss_client_id and settings.toss_client_secret)
+
+
+def make_toss_client() -> TossClient:
+    if not toss_configured():
+        raise TossError(".env에 TOSS_CLIENT_ID, TOSS_CLIENT_SECRET을 채워주세요.")
+    return TossClient(
+        settings.toss_client_id,
+        settings.toss_client_secret,
+        settings.db_path.parent / "toss_token.json",
+        settings.toss_account_seq,
+    )
+
+
+def api_synced(account: Account) -> bool:
+    """증권사 API로 자동 동기화하는 계좌인가 (아니면 스크린샷으로 갱신한다)."""
+    if account.broker is Broker.KIS:
+        return True
+    return account.broker is Broker.TOSS and account.kind is AccountKind.GENERAL and toss_configured()
+
+
+def sync_toss(session: Session, account_name: str = "토스", client: TossClient | None = None) -> SyncResult:
+    """토스증권 종합매매 계좌의 보유 종목(평균단가 포함)과 주문 가능 현금을 가져와 통째로 동기화한다."""
+    client = client or make_toss_client()
+    balance = client.balance()
+    created = False
+    try:
+        account = portfolio.get_account(session, account_name)
+    except PortfolioError:
+        account = portfolio.create_account(session, account_name, Broker.TOSS)
+        created = True
+    if account.broker is not Broker.TOSS:
+        raise PortfolioError(f"{account.name}은 토스증권 계좌가 아니에요.")
+
+    fx = client.usd_krw()
+    existing = {(h.instrument.market, h.instrument.symbol): h for h in account.holdings}
+    rows = [
+        replace(r, avg_fx=portfolio.blend_avg_fx(existing.get((r.market, r.symbol)), r.quantity, r.avg_cost, fx))
+        if r.market is Market.US
+        else r
+        for r in balance.holdings
+    ]
+    result = importers.import_holdings(session, account, rows, replace=True)
+    account.cash, account.cash_usd = balance.cash_krw, balance.cash_usd
+    warnings = []
+    if balance.skipped:
+        warnings.append(f"미국·국내 외 종목은 아직 지원하지 않아 건너뛰었어요: {', '.join(balance.skipped)}")
+    return SyncResult(
+        account=account,
+        domestic=sum(1 for r in balance.holdings if r.market is Market.KRX),
+        overseas=sum(1 for r in balance.holdings if r.market is Market.US),
         created=created,
         removed=[i.display_name for i in result.removed],
         warnings=warnings,

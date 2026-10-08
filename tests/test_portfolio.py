@@ -159,3 +159,68 @@ def test_pension_account_with_monthly_contribution(session):
     assert account.monthly_contribution == D(400000)
     with pytest.raises(PortfolioError):
         portfolio.create_account(session, "음수", Broker.SAMSUNG, monthly_contribution=D(-1))
+
+
+def test_blend_avg_fx_keeps_krw_cost_basis(session, toss):
+    nvda = portfolio.get_or_create_instrument(session, "NVDA")
+    assert portfolio.blend_avg_fx(None, D(1), D(100), D(1400)) == D(1400)  # 처음 보면 지금 환율
+
+    holding = portfolio.set_holding(session, toss, nvda, D(2), D(100), D(1300))  # 원화 원금 260,000
+    # 같은 수량: 원화 원금 보존 (달러 평단 표기가 바뀌어도)
+    assert portfolio.blend_avg_fx(holding, D(2), D(104), D(1450)) == D(1250)
+    # 1주 더 삼(120달러, 지금 환율 1500): 260,000 + 120 × 1500 = 440,000원 / 320달러
+    assert portfolio.blend_avg_fx(holding, D(3), D("106.666667"), D(1500)).quantize(D("0.1")) == D("1375.0")
+    # 1주 팖: 평균 환율 그대로
+    assert portfolio.blend_avg_fx(holding, D(1), D(100), D(1500)) == D(1300)
+
+
+def test_position_cost_uses_purchase_fx(session, toss):
+    nvda = portfolio.get_or_create_instrument(session, "NVDA")
+    portfolio.set_holding(session, toss, nvda, D(1), D(100), D(1300))
+    portfolio.set_holding(session, toss, nvda, D(1), D(110))  # avg_fx를 안 주면 기존 값 유지
+    [p] = portfolio.build_positions(session, FakePrices({(Market.US, "NVDA"): D(120)}, usd_krw=D(1400)))
+    assert p.cost_krw == D(110) * 1300
+    assert p.value_krw == D(120) * 1400
+    assert p.pnl_krw == D(168000) - D(143000)  # 주가 + 환율 손익
+
+
+class FakeQuotes(FakePrices):
+    """전일 종가도 주는 시세 제공자."""
+
+    def __init__(self, prices, prev, usd_krw=D(1400)):
+        super().__init__(prices, usd_krw)
+        self.prev = prev
+
+    def previous_closes(self, keys):
+        return {k: self.prev[k] for k in keys if k in self.prev}
+
+
+def test_day_change_per_position_and_totals(session, toss):
+    for symbol, qty in [("005930", "10"), ("AAPL", "2"), ("000660", "1")]:
+        instrument = portfolio.get_or_create_instrument(session, symbol)
+        portfolio.set_holding(session, toss, instrument, D(qty), D(1))
+    provider = FakeQuotes(
+        {(Market.KRX, "005930"): D(275), (Market.US, "AAPL"): D(99), (Market.KRX, "000660"): D(500)},
+        {(Market.KRX, "005930"): D(250), (Market.US, "AAPL"): D(100)},  # 하이닉스는 전일 종가를 모름
+        usd_krw=D(1000),
+    )
+    positions = {p.instrument.symbol: p for p in portfolio.build_positions(session, provider)}
+
+    assert positions["005930"].day_change_pct == D(10)
+    assert positions["005930"].day_pnl_krw == D(250)
+    assert positions["AAPL"].day_change_pct == D(-1)
+    assert positions["AAPL"].day_pnl_krw == D(-2000)  # (99 − 100) × 2주 × 1000원
+    assert positions["000660"].day_change_pct is None
+
+    total = portfolio.totals(positions.values())
+    assert total.day_pnl_krw == D(-1750)
+    # 어제 평가금 = 지금 평가금 − 오늘 변화 (모르는 종목은 변화 0으로 본다)
+    assert total.day_pct == D(-1750) / (D(2750 + 198000 + 500) + 1750) * 100
+
+
+def test_provider_without_previous_closes_has_no_day_change(session, toss):
+    instrument = portfolio.get_or_create_instrument(session, "005930")
+    portfolio.set_holding(session, toss, instrument, D(1), D(1))
+    [p] = portfolio.build_positions(session, FakePrices({(Market.KRX, "005930"): D(10)}))
+    assert p.day_change_pct is None and p.day_pnl_krw is None
+    assert portfolio.totals([p]).day_pnl_krw == 0

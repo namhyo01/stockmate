@@ -1,0 +1,12 @@
+# 맥에서 상시 실행. Docker Desktop이 켜지면 컨테이너도 자동으로 다시 뜬다.
+services:
+  stockmate:
+    build: .
+    image: stockmate:latest
+    container_name: stockmate
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"   # 외부 공개는 tailscale serve로만
+    volumes:
+      - .:/app                  # 코드와 data/를 그대로 쓴다 (코드 수정 후 docker compose restart)

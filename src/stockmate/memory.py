@@ -53,7 +53,7 @@ _PROFILE_SECTIONS = {
 }
 
 # Claude 응답 끝에 붙는 기계용 블록. 화면에 보여주기 전에 떼어낸다.
-_JSON_BLOCK = re.compile(r"```json\s*(.*?)```\s*$", re.S)
+_JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
 _MEMORY_BLOCK = re.compile(r"```(profile|plan)[ \t]*\n(.*?)```", re.S)
 _ENTRY = "<!-- entry -->"
 
@@ -109,15 +109,18 @@ class ParsedReport:
 
 def parse_report(text: str) -> ParsedReport:
     """리포트 끝의 ```json 블록(추천 목록, 교훈)을 떼어낸다. 블록이 없거나 깨졌으면 본문만 돌려준다."""
-    match = _JSON_BLOCK.search(text)
-    if not match:
+    # 마지막 json 블록을 쓴다. 블록 뒤에 claude가 붙이는 "Sources:" 같은 글은 본문 끝에 남긴다.
+    matches = list(_JSON_BLOCK.finditer(text))
+    if not matches:
         return ParsedReport(text.strip())
+    match = matches[-1]
+    body = "\n\n".join(part for part in (text[: match.start()].strip(), text[match.end() :].strip()) if part)
     try:
         data = json.loads(match.group(1))
     except json.JSONDecodeError:
-        return ParsedReport(text[: match.start()].strip())
+        return ParsedReport(body)
     return ParsedReport(
-        text[: match.start()].strip(),
+        body,
         [r for r in data.get("recommendations", []) if isinstance(r, dict) and r.get("symbol")],
         [str(x) for x in data.get("lessons", []) if str(x).strip()],
         data.get("actions") if isinstance(data.get("actions"), dict) else None,

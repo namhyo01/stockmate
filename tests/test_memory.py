@@ -108,3 +108,10 @@ def test_context_includes_profile_recommendations_and_conversations(session):
     assert "# 투자자 프로필" in context
     assert "하이닉스 팔까?" in context
     assert "지난 추천" in context
+
+
+def test_parse_report_reads_json_block_followed_by_sources():
+    text = '## 요약\n본문\n```json\n{"recommendations": [{"symbol": "AAPL"}], "lessons": ["교훈"]}\n```\n\nSources: [기사](https://example.com)'
+    parsed = memory.parse_report(text)
+    assert [r["symbol"] for r in parsed.recommendations] == ["AAPL"] and parsed.lessons == ["교훈"]
+    assert parsed.markdown == "## 요약\n본문\n\nSources: [기사](https://example.com)"

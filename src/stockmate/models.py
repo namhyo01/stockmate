@@ -225,7 +225,7 @@ class Idea(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
-    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | extract
+    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | extract | weekly(매주 토요일 발굴)
     name: Mapped[str] = mapped_column(String(100))
     symbol: Mapped[str | None] = mapped_column(String(20))
     market: Mapped[Market | None] = mapped_column(_enum(Market))
@@ -238,4 +238,8 @@ class Idea(Base):
     entry_high: Mapped[Decimal | None] = mapped_column(DecimalText())
     price_at: Mapped[Decimal | None] = mapped_column(DecimalText())  # 추천 당시 가격 (처음 조회한 값)
     sources: Mapped[str | None] = mapped_column(String(4000))  # JSON [{title, url}]
+    horizon: Mapped[str | None] = mapped_column(String(10))  # swing(몇 주~몇 달) | long(1년 이상)
+    patterns: Mapped[str | None] = mapped_column(String(200))  # 발굴 때 걸린 차트 패턴 키 (쉼표로 구분, patterns.py)
+    target: Mapped[Decimal | None] = mapped_column(DecimalText())  # 목표가
+    stop: Mapped[Decimal | None] = mapped_column(DecimalText())  # 이 가격을 종가로 깨면 추천을 철회한다
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | dismissed | replaced

@@ -30,6 +30,7 @@ _IDEAS_BLOCK = re.compile(r"```ideas[ \t]*\n(.*?)```", re.S)
 IDEAS_GUIDE = """- name: 종목명, symbol: 국내 6자리 코드 또는 미국 티커 (예: BRK.B), account: 담을 계좌 (토스 / 한투 / 삼성연금)
 - summary: 한 줄 요약, thesis: 추천 이유 목록, risks: 리스크 목록, overlap: 지금 가진 종목과 겹치는 정도 (한두 문장)
 - entry_low, entry_high: 사기 좋은 가격 범위 (종목 통화, 한쪽만 써도 됨, 없으면 null)
+- horizon: "swing"(몇 주~몇 달) 또는 "long"(1년 이상), target: 목표가, stop: 종가로 깨면 추천을 철회할 가격 (모르면 null)
 - sources: 근거로 쓴 웹 페이지 [{"title": "...", "url": "https://..."}] (답변의 출처와 같게)"""
 
 
@@ -104,6 +105,12 @@ def apply_ideas(
             entry_low=_decimal(raw.get("entry_low")),
             entry_high=_decimal(raw.get("entry_high")),
             sources=_sources(raw.get("sources")),
+            horizon=raw.get("horizon") if raw.get("horizon") in ("swing", "long") else None,
+            patterns=_text(",".join(p for p in raw.get("patterns") or [] if isinstance(p, str)), 200)
+            if isinstance(raw.get("patterns"), list)
+            else None,
+            target=_decimal(raw.get("target")),
+            stop=_decimal(raw.get("stop")),
             status=ACTIVE,
         )
         for old in active_ideas(session):
@@ -136,7 +143,8 @@ def context_text(session: Session, limit: int = 10) -> str:
     if not items:
         return "- 아직 없음"
     return "\n".join(
-        f"- {i.created_at:%m-%d} {i.name}({i.symbol or '코드 미정'}, {i.account or '계좌 미정'}): {i.summary or ''}"
+        f"- {i.created_at:%m-%d} {i.name}({i.symbol or '코드 미정'}, {i.account or '계좌 미정'}"
+        f"{', ' + {'swing': '스윙', 'long': '장기'}[i.horizon] if i.horizon else ''}): {i.summary or ''}"
         for i in items
     )
 
@@ -188,6 +196,12 @@ def idea_rows(session: Session, provider: PriceProvider) -> dict[str, Any]:
             "overlap": idea.overlap,
             "entry_low": _num(idea.entry_low),
             "entry_high": _num(idea.entry_high),
+            "horizon": idea.horizon,
+            "patterns": idea.patterns.split(",") if idea.patterns else [],
+            "target": _num(idea.target),
+            "stop": _num(idea.stop),
+            "below_stop": bool(price is not None and idea.stop and price < idea.stop),
+            "hit_target": bool(price is not None and idea.target and price >= idea.target),
             "price_at": _num(idea.price_at),
             "price_now": _num(price),
             "change_pct": _num(change),

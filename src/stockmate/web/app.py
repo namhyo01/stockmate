@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
-from stockmate import analysis, ideas, importers, memory, plans, portfolio, screenshots, sync, technical
+from stockmate import analysis, discovery, ideas, importers, memory, plans, portfolio, screenshots, sync, technical
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
 from stockmate.config import settings
@@ -55,6 +55,7 @@ def _build() -> dict[str, Any]:
 # 20초 넘은 스냅샷은 돌려준 뒤 뒤에서 새로 만든다.
 snapshots = SnapshotStore(_build, max_age=timedelta(seconds=20))
 runner = analysis.AnalysisRunner()
+weekly = discovery.WeeklyRunner(lambda: snapshots.get())
 # 서버 메모리가 작으므로 질문에 답하거나 스크린샷을 읽는 Claude도 한 번에 하나만 띄운다.
 _ask_lock = threading.Lock()
 
@@ -64,6 +65,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 누가 보고 있으면 20초마다, 5분 넘게 아무도 안 보면 10분마다 시세를 미리 받아 둔다.
     # (한투 시세 29종목 ≈ 3초, 초당 20건 제한 안쪽)
     snapshots.keep_warm(active=timedelta(minutes=5), busy_every=20, idle_every=600)
+    weekly.schedule()  # 매주 토요일 오전 8시 종목 발굴
     yield
 
 
@@ -286,6 +288,38 @@ def get_chart(market: Market, symbol: str = Query(min_length=1, max_length=20), 
     if payload is None:
         raise HTTPException(404, "일봉을 가져오지 못했어요.")
     return payload
+
+
+# ── 매주 종목 발굴 ─────────────────────────────────
+
+
+def _discovery_state() -> dict[str, Any]:
+    last = discovery.latest_run()
+    return {
+        "status": weekly.status,
+        "started_at": weekly.started_at.isoformat(timespec="seconds") if weekly.started_at else None,
+        "error": weekly.error,
+        "last": last,
+    }
+
+
+@app.get("/api/discovery")
+def get_discovery() -> dict[str, Any]:
+    return _discovery_state()
+
+
+@app.post("/api/discovery")
+def start_discovery() -> dict[str, Any]:
+    """지금 바로 종목 발굴을 돌린다 (5~10분). 정기 실행은 토요일 오전 8시."""
+    if not weekly.start():
+        raise HTTPException(409, "이미 종목을 찾는 중이에요.")
+    return _discovery_state()
+
+
+@app.get("/api/ideas/scorecard")
+def get_scorecard() -> dict[str, Any]:
+    with session_scope() as session:
+        return discovery.scorecard(session)
 
 
 class Profile(BaseModel):

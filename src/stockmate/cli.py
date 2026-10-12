@@ -342,6 +342,27 @@ def web(
     uvicorn.run("stockmate.web.app:app", host=host, port=port, log_level="warning")
 
 
+@app.command()
+def discover(
+    ai: Annotated[bool, typer.Option("--ai/--no-ai", help="--no-ai면 후보와 패턴 성과만 보여준다 (AI 추천 없이)")] = True,
+) -> None:
+    """시장 전체를 훑어 종목을 발굴한다 (매주 토요일 자동 실행과 같다). 몇 분 걸린다."""
+    from stockmate import discovery
+    from stockmate.report import build_snapshot
+
+    with console.status("일봉을 받고 패턴을 계산하는 중... (AI 추천까지 5~10분)"):
+        with session_scope() as session:
+            snapshot = build_snapshot(session, sync.price_provider())
+        record = discovery.run_weekly(snapshot, use_ai=ai)
+    console.print(f"조사 {record['scanned']}종목, 최근 신호 {record['signals']}개, 후보 {len(record['candidates'])}개")
+    table = Table("시장", "종목", "패턴", "점수", title="후보")
+    for c in record["candidates"]:
+        table.add_row(c["group"], f"{c['name']} ({c['symbol']})", ", ".join(c["patterns"]), f"{c['score']:.1f}")
+    console.print(table)
+    if record["picks"]:
+        console.print("추천: " + ", ".join(f"{p['name']}({p['symbol']})" for p in record["picks"]))
+
+
 # ── 통합 현황 ──────────────────────────────────────────
 
 

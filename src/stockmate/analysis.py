@@ -242,6 +242,11 @@ def _run_claude(prompt: str) -> str:
     return markdown
 
 
+def run_claude(prompt: str) -> str:
+    """웹 검색만 허용한 claude -p를 실행하고 응답 글을 돌려준다 (주간 종목 발굴에서도 쓴다)."""
+    return _run_claude(prompt)
+
+
 def run_analysis(snapshot: dict[str, Any]) -> Analysis:
     """Claude Code를 실행해서 분석 리포트를 만든다. 몇 분 걸린다.
 

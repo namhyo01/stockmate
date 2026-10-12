@@ -27,6 +27,9 @@ src/stockmate/
   sync.py          KIS·토스 동기화, 시세 제공자 선택 (KIS 우선, 실패 시 공개 데이터)
   importers.py     잔고 CSV 가져오기 (symbol,name,quantity,avg_cost,market)
   report.py        대시보드·분석 공용 스냅샷 dict, ETF 이름으로 실제 투자 지역 추정
+  history.py       발굴용 5년 일봉(data/candles/, 하루 한 번 갱신)과 조사 대상 목록(코스피200·코스닥150·국내 ETF 80·S&P500+나스닥100·미국 ETF 40, 레버리지·인버스 제외)
+  patterns.py      발굴용 차트 패턴 10개(그날까지 데이터만 사용) + 백테스트(지수 대비 평균·중간값·이긴 비율·앞뒤 절반)
+  discovery.py     매주 토요일 8시 종목 발굴(웹 서버 스레드, `stock discover`): 훑기 → 후보 → claude -p(웹 검색)가 3~5개 → Idea(source=weekly), 추천 성적표
   symbols.py       질문 글에서 종목 찾기: 국내 종목·ETF 이름 목록(data/krx_names.json, 일주일 캐시), 미국 종목 한글 이름표, DB 종목명. 두 글자 이름은 잘 알려진 것만
   technical.py     일봉(FDR·yfinance, 30분 캐시) → 이동평균·일목균형표·RSI·MACD·볼린저·거래량·캔들 패턴 계산 → 프롬프트용 차트 요약 (AI는 해석만)
   analysis.py      claude -p 실행 (분석 리포트, 질문 답변)
@@ -44,6 +47,7 @@ data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_
 - **AI는 Anthropic API 키가 아니라 Claude Code 구독으로 돌린다.** `analysis.py`가 `claude -p --tools WebSearch --strict-mcp-config`로 새 세션을 띄운다. anthropic SDK나 ANTHROPIC_API_KEY를 추가하지 않는다.
 - **주문 기능은 만들지 않는다.** API 키 유출 대비가 아니라, AI(외부 텍스트를 읽는 claude -p)에게 매매 경로를 주지 않기 위해서다. 사용자가 원하면 "사람이 CLI에서 직접 승인해야 실행 + 금액 한도 + 모의투자 먼저 + cron에서는 불가" 조건으로만 만든다.
 - **차트 지표는 코드가 계산하고 AI는 해석만 한다.** 분석·질문 프롬프트에 보유 종목, 추천 탭 종목, 질문에 쓴 종목(`symbols.find_symbols`: 6자리 코드, 대문자 미국 티커, 한글 종목명. 일봉이 없으면 조용히 뺀다)의 `technical.chart_context()` 요약이 들어간다. 분석 리포트에는 "차트 점검" 섹션이 있다.
+- **종목 발굴은 '코드가 후보와 확률, AI가 판단'** (`discovery.py`). 백테스트(2026-10 기준)에서 단순 차트 패턴은 대부분 지수를 못 이겼고, 꾸준히 나은 건 상대강도(주도주) 계열과 미국의 신고가·구름 돌파뿐이었다. 그마저 지수 대비 중간값은 마이너스(소수의 큰 승자가 평균을 끌어올림)라서, 추천에는 철회 기준(stop)과 목표가(target)를 꼭 붙이고 나눠 담게 한다. 생존 편향(지금 목록으로 과거 계산)이 있다는 점도 프롬프트와 화면에 밝힌다. 추천 성적표(스윙 20거래일, 장기 120거래일, 지수 대비)는 다음 발굴 프롬프트에 들어간다.
 - **기억은 파일과 DB로 쌓는다** (모델 재학습이 아님). 분석·질문 때마다 `memory.build_context()`가 프로필, 최근 추천 2회분과 이후 가격 변화, 최근 대화 5개를 프롬프트에 넣는다.
   - `data/memory/profile.md`: 사람이 고칠 수 있는 투자자 프로필. Claude 응답 끝의 ```profile / ```plan 블록, 분석 JSON의 lessons가 자동으로 추가된다.
   - `data/memory/conversations/YYYY-MM.md`: 웹 질문 전체 기록. 대시보드 "지난 질문"에 최신순으로 보인다 (`/api/conversations`).

@@ -16,6 +16,7 @@ _ADDED_COLUMNS = {
     "accounts": {"cash": "VARCHAR", "synced_at": "DATETIME", "cash_usd": "VARCHAR"},
     "holdings": {"avg_fx": "VARCHAR"},
     "plan_items": {"due_from": "DATE", "due_to": "DATE", "due_checked": "BOOLEAN DEFAULT 0"},
+    "ideas": {"horizon": "VARCHAR(10)", "patterns": "VARCHAR(200)", "target": "VARCHAR", "stop": "VARCHAR"},
 }
 
 

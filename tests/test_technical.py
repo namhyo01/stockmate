@@ -129,12 +129,6 @@ def test_chart_targets_merges_holdings_and_ideas():
     ]
 
 
-def test_question_symbols_finds_codes_and_us_tickers():
-    found = analysis.question_symbols("NVDA랑 BRK.B, 000660 중에 ETF 말고 뭐가 나아? RSI랑 FOMC도 봐줘. S&P500은?")
-    assert found == [(Market.KRX, "000660", "000660"), (Market.US, "NVDA", "NVDA"), (Market.US, "BRK-B", "BRK-B")]
-    assert analysis.question_symbols("엔비디아 어때?") == []
-
-
 def test_optional_symbols_are_dropped_silently_when_missing():
     frames = {(Market.US, "NVDA"): make_frame([100 + i for i in range(200)])}
     source = technical.DailyCandles(lambda m, s: frames.get((m, s)))

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import threading
@@ -17,11 +16,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from stockmate import ideas, memory, plans, technical
+from sqlalchemy import select
+
+from stockmate import ideas, memory, plans, symbols, technical
 from stockmate.config import settings
 from stockmate.db import session_scope
-from stockmate.models import Idea, Market, PlanItem
-from stockmate.portfolio import detect_market, normalize_symbol
+from stockmate.models import Idea, Instrument, Market, PlanItem
+from stockmate.portfolio import detect_market
 
 ANALYSIS_DIR = settings.db_path.parent / "analyses"
 TIMEOUT_SECONDS = 15 * 60
@@ -166,18 +167,6 @@ def build_prompt(snapshot: dict[str, Any], context: str, charts: str = "(없음)
     )
 
 
-_KRX_CODE = re.compile(r"(?<![0-9A-Za-z])\d{6}(?![0-9A-Za-z])")
-# 미국 티커: 대문자 1~5자 (BRK.B 같은 클래스주 포함). 한글 조사가 바로 붙어도 찾는다 (예: "NVDA를").
-_US_TICKER = re.compile(r"(?<![A-Za-z0-9.&-])([A-Z]{1,5}(?:[.-][A-Z])?)(?![A-Za-z0-9&])")
-# 티커처럼 생겼지만 투자 용어인 것 (실제 티커와 겹쳐도 질문에서는 용어로 쓰는 경우가 대부분이다)
-_NOT_TICKERS = {
-    "AI", "ETF", "ETN", "ISA", "IRP", "MMF", "CMA", "RP", "ELS", "DLS", "IPO", "CEO", "CFO", "USD", "KRW", "FX",
-    "RSI", "MACD", "MA", "EMA", "SMA", "BB", "PER", "PBR", "PSR", "ROE", "ROA", "EPS", "BPS", "EV", "EBITDA",
-    "FOMC", "CPI", "PPI", "PCE", "GDP", "FED", "ECB", "BOJ", "BOK", "SEC", "KRX", "US", "USA", "UK", "EU",
-    "S", "P", "SP", "OK", "NO", "YES", "VS", "Q", "QQ", "YOY", "QOQ", "TTM", "API", "HTS", "MTS", "ATH", "TOP",
-}  # fmt: skip
-
-
 def chart_targets(snapshot: dict[str, Any], active_ideas: list[Idea]) -> list[tuple[Market, str, str]]:
     """차트 지표를 꼭 붙일 종목: 보유 종목, 추천 탭의 종목(최근 10개). 같은 종목은 한 번만."""
     targets = [(Market(p["market"]), p["symbol"], p["name"]) for p in snapshot.get("positions", [])]
@@ -190,20 +179,12 @@ def chart_targets(snapshot: dict[str, Any], active_ideas: list[Idea]) -> list[tu
     return list(seen.values())
 
 
-def question_symbols(question: str, limit: int = 5) -> list[tuple[Market, str, str]]:
-    """질문에 쓴 국내 6자리 코드와 미국 티커(대문자). 실제 종목인지는 일봉을 가져와 봐야 안다."""
-    found = [(Market.KRX, code) for code in _KRX_CODE.findall(question)]
-    found += [
-        (Market.US, normalize_symbol(t)) for t in _US_TICKER.findall(question) if t.replace("-", ".") not in _NOT_TICKERS
-    ]
-    return [(m, s, s) for m, s in dict.fromkeys(found)][:limit]
-
-
 def chart_text(snapshot: dict[str, Any], question: str = "") -> str:
     with session_scope() as session:
         targets = chart_targets(snapshot, ideas.active_ideas(session))
+        known = [(i.market, i.symbol, i.name) for i in session.scalars(select(Instrument))]
     held = {(m, s) for m, s, _ in targets}
-    extra = [t for t in question_symbols(question) if t[:2] not in held]
+    extra = [t for t in symbols.find_symbols(question, known + targets) if t[:2] not in held] if question else []
     return technical.chart_context(targets, optional=extra)
 
 

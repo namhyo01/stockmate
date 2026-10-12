@@ -566,6 +566,68 @@ footer { margin: 48px 0 32px; font-size: 12px; color: var(--ink-3); }
   .assets { font-size: 36px; }
   .map { height: 340px; }
 }
+/* ── 차트 ── 이동평균 선 색은 색약 검사를 통과한 값 (밝은 화면·어두운 화면 따로) */
+:root { --ma20: #c78500; --ma60: #13996a; --ma120: #7b5bd6; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --ma20: #b88510; --ma60: #1fa06f; --ma120: #9a80ea; } }
+:root[data-theme="dark"] { --ma20: #b88510; --ma60: #1fa06f; --ma120: #9a80ea; }
+dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
+.sheet-head .csym { font-size: 13px; color: var(--ink-3); font-weight: 600; }
+.sheet-head strong .csym { margin-left: 8px; }
+.ctool { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 10px; }
+.ctool .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--sunken); border-radius: 999px; }
+.ctool .seg .tab { padding: 5px 11px; font-size: 13px; }
+.ctool .seg .tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.cread { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-height: 24px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cread b { color: var(--ink); font-size: 18px; font-weight: 750; }
+.cread .k { color: var(--ink-3); margin-right: 3px; }
+.cplot { position: relative; height: 430px; margin-top: 6px; user-select: none; touch-action: pan-y; }
+.cplot svg { display: block; width: 100%; height: 100%; outline: none; }
+.cplot svg:focus-visible { box-shadow: 0 0 0 2px var(--focus); border-radius: 6px; }
+.cplot .loading { display: grid; place-items: center; height: 100%; color: var(--ink-3); font-size: 14px; }
+.cplot .grid { stroke: var(--line); stroke-width: 1; }
+.cplot .axis { fill: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cplot .future { fill: var(--sunken); opacity: .55; }
+.cplot .wick { stroke-width: 1; }
+.cplot .up { fill: var(--up); stroke: var(--up); }
+.cplot .down { fill: var(--down); stroke: var(--down); }
+.cplot .vol { opacity: .4; }
+.cloud-up { fill: color-mix(in srgb, var(--up) 13%, transparent); }
+.cloud-down { fill: color-mix(in srgb, var(--down) 13%, transparent); }
+.ln { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.l-ma20 { stroke: var(--ma20); } .l-ma60 { stroke: var(--ma60); } .l-ma120 { stroke: var(--ma120); }
+.l-tenkan { stroke: var(--ink-2); stroke-dasharray: 4 3; }
+.l-kijun { stroke: var(--ink); }
+.l-chikou { stroke: var(--ink-3); stroke-dasharray: 1 3; }
+.l-span-a { stroke: color-mix(in srgb, var(--up) 55%, transparent); stroke-width: 1 !important; }
+.l-span-b { stroke: color-mix(in srgb, var(--down) 55%, transparent); stroke-width: 1 !important; }
+.l-bb { stroke: var(--ink-3); stroke-dasharray: 6 3; stroke-width: 1.2 !important; }
+.ref { stroke-width: 1; stroke-dasharray: 3 3; }
+.ref.avg { stroke: var(--ink-2); }
+.cplot .tag rect { rx: 4px; }
+.cplot .tag text { font-size: 11px; font-weight: 700; fill: #fff; font-variant-numeric: tabular-nums; }
+.cplot .tag.avg rect { fill: var(--ink-2); } .tag.avg text { fill: var(--surface); }
+.cplot .tag.cur rect { fill: var(--ink); } .tag.cur text { fill: var(--surface); }
+.cplot .cross { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 2; }
+.cplot .future-label { fill: var(--ink-3); font-size: 11px; }
+.clegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.clegend span { display: inline-flex; align-items: center; gap: 6px; }
+.clegend svg { flex: none; }
+.clegend b { color: var(--ink); font-weight: 650; }
+.csum { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.csum h4 { margin: 0 0 4px; font-size: 14px; }
+.csum p { margin: 0 0 10px; font-size: 12.5px; color: var(--ink-3); }
+.csum dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13px; }
+.csum dt { color: var(--ink-3); white-space: nowrap; }
+.csum dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.nlink { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; min-width: 0; }
+.nlink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.mchart { padding: 0 14px 14px 28px; }
+@media (max-width: 560px) {
+  dialog.sheet.wide { width: 100vw; }
+  .cplot { height: 320px; }
+  .csum dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .csum dd { margin-bottom: 6px; }
+}
 </style>
 </head>
 <body>
@@ -705,6 +767,13 @@ footer { margin: 48px 0 32px; font-size: 12px; color: var(--ink-3); }
   </div>
   <div class="sheet-body" id="shot-body"></div>
   <div class="sheet-foot" id="shot-foot"></div>
+</dialog>
+<dialog class="sheet wide" id="chart" aria-labelledby="chart-title">
+  <div class="sheet-head">
+    <strong><span id="chart-title"></span><span class="csym" id="chart-sym"></span></strong>
+    <button class="x" type="button" id="chart-close" aria-label="닫기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="sheet-body" id="chart-body"></div>
 </dialog>
 <input type="file" id="shot-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
 
@@ -978,7 +1047,7 @@ function renderTable() {
 
   function holdingRow(p) {
     return `<tr class="${planClass(p)}">
-      <td><div class="n" style="--c:${acctColor(p.account_id)}"><i></i><span title="${esc(p.name)}">${esc(p.name)}</span>${planTags(p)}</div>
+      <td><div class="n" style="--c:${acctColor(p.account_id)}"><i></i><button type="button" class="nlink" title="${esc(p.name)} 차트 보기" ${chartAttrs(p.market, p.symbol, p.name, p.avg_cost)}>${esc(p.name)}</button>${planTags(p)}</div>
         <div class="s">${esc(p.account)}, ${esc(p.symbol)}${p.strategy_label ? `, ${esc(p.strategy_label)}` : ""}</div></td>
       <td>${qty(p.quantity)}</td>
       <td>${price(p.avg_cost, p.currency)}</td>
@@ -1105,7 +1174,8 @@ function renderList(groups) {
         <span class="l"><b><span>${esc(p.name)}</span>${planTags(p, false)}</b><small>${esc(p.account)} · ${p.quantity == null ? "-" : p.quantity.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}주${p.day_change_pct == null ? "" : ` · <span class="day ${tone(p.day_change_pct)}">오늘 ${pct(p.day_change_pct)}</span>`}</small></span>
         <span class="r"><b><span class="${flashOf(p)}">${won(p.value_krw)}원</span></b><small class="${tone(p.pnl_krw)}">${signed(p.pnl_krw)} (${pct(p.pnl_pct, 1)})</small></span>
         ${planBar(p, true) ? `<span class="mbar">${planBar(p, true)}</span>` : ""}
-      </button>${open ? `<dl class="mdet">${detail.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>` : ""}</div>`;
+      </button>${open ? `<dl class="mdet">${detail.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+        <div class="mchart"><button type="button" class="btn sm" ${chartAttrs(p.market, p.symbol, p.name, p.avg_cost)}>차트 보기</button></div>` : ""}</div>`;
   }
 }
 $("mlist").addEventListener("click", (e) => {
@@ -1615,6 +1685,7 @@ function ideaCard(i) {
     ${i.sources.length ? `<details class="isrc"><summary>출처 ${i.sources.length}개</summary><ul>${i.sources.map((s) =>
       `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a></li>`).join("")}</ul></details>` : ""}
     <div class="ifoot"><span class="quiet">${{ chat: "AI 대화", analysis: "분석 리포트", extract: "AI 대화" }[i.source] || ""}에서</span>
+      ${i.symbol && i.market ? `<button class="btn sm" type="button" ${chartAttrs(i.market, i.symbol, i.name)}>차트</button>` : ""}
       ${i.planned ? `<a class="btn sm" href="#plans">계획 보기</a>` : ""}
       <button class="btn sm" type="button" data-idea="${i.id}" data-status="dismissed">관심 없음</button></div>
   </article>`;
@@ -1890,6 +1961,319 @@ loadPrices();
 pollAnalysis();
 loadMemory();
 showView(viewFromHash());
+
+/* ── 차트 (일봉 캔들 + 이동평균·일목균형표·볼린저) ─────────────── */
+const CHART_RANGES = [[63, "3개월"], [126, "6개월"], [250, "1년"], [0, "전체"]];
+const CHART_LAYERS = [["ma", "이동평균"], ["ichimoku", "일목균형표"], ["bb", "볼린저밴드"]];
+const CHART_LINES = [
+  { k: "ma20", layer: "ma", label: "20일선" },
+  { k: "ma60", layer: "ma", label: "60일선" },
+  { k: "ma120", layer: "ma", label: "120일선" },
+  { k: "tenkan", layer: "ichimoku", label: "전환선" },
+  { k: "kijun", layer: "ichimoku", label: "기준선" },
+  { k: "chikou", layer: "ichimoku", label: "후행스팬" },
+  { k: "bb_upper", layer: "bb", label: "볼린저 상단", cls: "l-bb" },
+  { k: "bb_lower", layer: "bb", label: "볼린저 하단", cls: "l-bb" },
+];
+const CLOUD_SHIFT = 25;  // 선행스팬을 그리는 자리 (technical.SHIFT와 같다)
+const chart = { data: null, meta: null, cursor: null, req: 0, geo: null,
+  range: Number(loadPref("chartRange", "126")) || 0, layers: loadJSON("chartLayers") };
+const layerOn = (k) => chart.layers[k] ?? k !== "bb";
+
+function chartAttrs(market, symbol, name, avg) {
+  return `data-chart="${esc(symbol)}" data-market="${esc(market)}" data-name="${esc(name)}"${avg != null ? ` data-avg="${avg}"` : ""}`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-chart]"); if (!b) return;
+  e.preventDefault();
+  openChart({ market: b.dataset.market, symbol: b.dataset.chart, name: b.dataset.name, avg: b.dataset.avg ? Number(b.dataset.avg) : null });
+});
+
+async function openChart(meta) {
+  Object.assign(chart, { meta, data: null, cursor: null });
+  $("chart-title").textContent = meta.name;
+  $("chart-sym").textContent = `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
+  renderChartShell();
+  if (!$("chart").open) $("chart").showModal();
+  const req = ++chart.req;
+  try {
+    const q = new URLSearchParams({ market: meta.market, symbol: meta.symbol, name: meta.name });
+    const d = await api(`/api/chart?${q}`);
+    if (req !== chart.req) return;
+    chart.data = d;
+    renderChartShell();
+  } catch (e) {
+    if (req === chart.req) $("chart-plot").innerHTML = `<div class="loading">차트를 불러오지 못했어요: ${esc(e.message)}</div>`;
+  }
+}
+$("chart-close").addEventListener("click", () => $("chart").close());
+$("chart").addEventListener("close", () => { chart.req++; chart.data = null; });
+
+function renderChartShell() {
+  const d = chart.data;
+  $("chart-body").innerHTML = `
+    <div class="ctool">
+      <div class="seg" role="group" aria-label="기간">${CHART_RANGES.map(([n, label]) =>
+        `<button type="button" class="tab" data-crange="${n}" aria-pressed="${chart.range === n}">${label}</button>`).join("")}</div>
+      <div class="seg" role="group" aria-label="지표">${CHART_LAYERS.map(([k, label]) =>
+        `<button type="button" class="tab" data-clayer="${k}" aria-pressed="${layerOn(k)}">${label}</button>`).join("")}</div>
+    </div>
+    <div class="cread" id="chart-read" aria-live="off"></div>
+    <div class="cplot" id="chart-plot">${d ? "" : `<div class="loading"><span><span class="spin"></span> 일봉을 불러오는 중이에요</span></div>`}</div>
+    <div class="clegend" id="chart-legend"></div>
+    ${d?.text ? chartSummary(d.text) : ""}`;
+  if (d) { drawChart(); updateReadout(); }
+}
+$("chart-body").addEventListener("click", (e) => {
+  const r = e.target.closest("[data-crange]");
+  if (r) {
+    chart.range = Number(r.dataset.crange);
+    try { localStorage.setItem("chartRange", String(chart.range)); } catch {}
+  }
+  const l = e.target.closest("[data-clayer]");
+  if (l) {
+    chart.layers[l.dataset.clayer] = !layerOn(l.dataset.clayer);
+    try { localStorage.setItem("chartLayers", JSON.stringify(chart.layers)); } catch {}
+  }
+  if (!r && !l) return;
+  $("chart-body").querySelectorAll("[data-crange]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.crange) === chart.range)));
+  $("chart-body").querySelectorAll("[data-clayer]").forEach((b) => b.setAttribute("aria-pressed", String(layerOn(b.dataset.clayer))));
+  chart.cursor = null;
+  drawChart(); updateReadout();
+});
+
+// 서버가 AI에게 넘기는 차트 요약 글을 그대로 보여준다 ("- 항목: 내용" 줄들)
+function chartSummary(text) {
+  const rows = text.split("\n").filter((line) => line.startsWith("- ")).map((line) => {
+    const i = line.indexOf(":");
+    return i < 0 ? ["", line.slice(2)] : [line.slice(2, i), line.slice(i + 1).trim()];
+  });
+  return `<section class="csum"><h4>AI가 보는 차트 요약</h4>
+    <p>분석 리포트와 AI 질문 답변에 이 내용이 함께 들어가요.</p>
+    <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>`;
+}
+
+function niceStep(span, count) {
+  const raw = span / count, mag = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || raw;
+}
+
+function drawChart() {
+  const d = chart.data, el = $("chart-plot");
+  if (!d || !el) return;
+  const cur = d.currency, n = d.dates.length;
+  const count = chart.range ? Math.min(chart.range, n) : n, start = n - count;
+  const ich = layerOn("ichimoku"), ahead = ich ? CLOUD_SHIFT : 0;
+  const W = el.clientWidth, H = el.clientHeight;
+  const padL = 4, padR = 70, top = 10, axisH = 20;
+  const volH = Math.round((H - top - axisH) * 0.18), priceH = H - top - axisH - volH - 10;
+  const volTop = top + priceH + 10;
+  const bw = (W - padL - padR) / (count + ahead);
+  const X = (i) => padL + (i - start + 0.5) * bw;  // i: 날짜 순번 (n 이상이면 앞날짜)
+  const lines = CHART_LINES.filter((l) => layerOn(l.layer));
+
+  // 세로 범위: 보이는 캔들과 보이는 선·구름을 모두 담는다
+  let lo = Infinity, hi = -Infinity;
+  const take = (v) => { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } };
+  for (let i = start; i < n; i++) { take(d.ohlc[i][1]); take(d.ohlc[i][2]); }
+  lines.forEach((l) => { for (let i = start; i < n; i++) take(d.lines[l.k][i]); });
+  const cloudFrom = Math.max(0, start - CLOUD_SHIFT);
+  if (ich) for (let i = cloudFrom; i < n; i++) { take(d.cloud.a[i]); take(d.cloud.b[i]); }
+  if (chart.meta.avg != null && chart.meta.avg >= lo * 0.85 && chart.meta.avg <= hi * 1.15) take(chart.meta.avg);
+  const pad = (hi - lo) * 0.06 || hi * 0.02;
+  lo -= pad; hi += pad;
+  const Y = (v) => top + ((hi - v) / (hi - lo)) * priceH;
+  let vmax = 0;
+  for (let i = start; i < n; i++) vmax = Math.max(vmax, d.volume[i]);
+  const VY = (v) => volTop + volH - (vmax ? (v / vmax) * volH : 0);
+  const fmt = (v) => cur === "USD" ? v.toFixed(v >= 1000 ? 0 : 2) : won(v);
+  const out = [];
+
+  // 앞날짜(구름만 있는 자리)
+  if (ahead) {
+    out.push(`<rect class="future" x="${X(n) - bw / 2}" y="${top}" width="${ahead * bw}" height="${priceH}"/>`);
+    out.push(`<text class="future-label" x="${X(n) - bw / 2 + 6}" y="${top + 14}">앞 구름</text>`);
+  }
+  // 가격 눈금
+  const step = niceStep(hi - lo, priceH > 260 ? 6 : 4);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    out.push(`<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}"/>`);
+    out.push(`<text class="axis" x="${W - padR + 6}" y="${Y(v) + 4}">${fmt(v)}</text>`);
+  }
+  out.push(`<line class="grid" x1="${padL}" x2="${W - padR}" y1="${volTop + volH}" y2="${volTop + volH}"/>`);
+  // 날짜 눈금: 달이 바뀌는 날 (기간이 짧으면 둘째 주 월요일도)
+  const allDates = d.dates.concat(d.cloud.dates.slice(n - CLOUD_SHIFT));
+  let lastX = -99;
+  for (let i = Math.max(start, 1); i < n + ahead; i++) {
+    const a = allDates[i - 1], b = allDates[i];
+    if (!b || a.slice(5, 7) === b.slice(5, 7)) continue;
+    const x = X(i);
+    if (x - lastX < 46) continue;
+    lastX = x;
+    const m = Number(b.slice(5, 7));
+    out.push(`<line class="grid" x1="${x}" x2="${x}" y1="${top}" y2="${volTop + volH}" opacity=".5"/>`);
+    out.push(`<text class="axis" x="${x}" y="${H - 5}" text-anchor="middle">${m === 1 ? `${b.slice(0, 4)}년` : `${m}월`}</text>`);
+  }
+
+  // 구름: 선행스팬 A·B 사이를 칠한다. 꼬이는 구간은 교차점에서 나눈다.
+  if (ich) {
+    const up = [], down = [];
+    const ca = d.cloud.a, cb = d.cloud.b;
+    for (let i = cloudFrom; i < n - 1; i++) {
+      if ([ca[i], cb[i], ca[i + 1], cb[i + 1]].some((v) => v == null)) continue;
+      const x1 = X(i + CLOUD_SHIFT), x2 = X(i + 1 + CLOUD_SHIFT);
+      if (x2 < padL) continue;
+      const d1 = ca[i] - cb[i], d2 = ca[i + 1] - cb[i + 1];
+      const poly = (pts) => "M" + pts.map(([x, v]) => `${x.toFixed(1)},${Y(v).toFixed(1)}`).join("L") + "Z";
+      if ((d1 >= 0) === (d2 >= 0)) {
+        (d1 >= 0 ? up : down).push(poly([[x1, ca[i]], [x2, ca[i + 1]], [x2, cb[i + 1]], [x1, cb[i]]]));
+      } else {
+        const t = d1 / (d1 - d2), xc = x1 + t * (x2 - x1), vc = ca[i] + t * (ca[i + 1] - ca[i]);
+        (d1 >= 0 ? up : down).push(poly([[x1, ca[i]], [xc, vc], [x1, cb[i]]]));
+        (d2 >= 0 ? up : down).push(poly([[xc, vc], [x2, ca[i + 1]], [x2, cb[i + 1]]]));
+      }
+    }
+    out.push(`<path class="cloud-up" d="${up.join("")}"/><path class="cloud-down" d="${down.join("")}"/>`);
+    out.push(linePath(d.cloud.a, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y, "ln l-span-a"));
+    out.push(linePath(d.cloud.b, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y, "ln l-span-b"));
+  }
+
+  // 거래량, 캔들
+  const body = Math.max(1, Math.min(bw * 0.7, 12));
+  for (let i = start; i < n; i++) {
+    const [o, h, l, c] = d.ohlc[i], x = X(i);
+    const prev = i ? d.ohlc[i - 1][3] : o;
+    const cls = c > o || (c === o && c >= prev) ? "up" : "down";
+    out.push(`<rect class="vol ${cls}" x="${(x - body / 2).toFixed(1)}" y="${VY(d.volume[i]).toFixed(1)}" width="${body.toFixed(1)}" height="${(volTop + volH - VY(d.volume[i])).toFixed(1)}"/>`);
+    out.push(`<line class="wick ${cls}" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${Y(h).toFixed(1)}" y2="${Y(l).toFixed(1)}"/>`);
+    const y1 = Y(Math.max(o, c)), bh = Math.max(1, Y(Math.min(o, c)) - y1);
+    out.push(`<rect class="${cls}" x="${(x - body / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${body.toFixed(1)}" height="${bh.toFixed(1)}"/>`);
+  }
+  // 지표 선 (후행스팬은 오늘 종가를 25칸 앞에 그린 값이라 그대로 같은 자리에 그린다)
+  lines.forEach((l) => out.push(linePath(d.lines[l.k], start, n, X, Y, `ln ${l.cls || `l-${l.k}`}`)));
+
+  // 평단·현재가 기준선과 오른쪽 표시
+  const tags = [];
+  const last = d.ohlc[n - 1][3];
+  if (chart.meta.avg != null && chart.meta.avg > lo && chart.meta.avg < hi) {
+    out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(chart.meta.avg)}" y2="${Y(chart.meta.avg)}"/>`);
+    tags.push({ cls: "avg", y: Y(chart.meta.avg), text: `평단 ${fmt(chart.meta.avg)}` });
+  }
+  const lastCls = last >= (d.ohlc[n - 2]?.[3] ?? last) ? "up" : "down";
+  out.push(`<line class="ref ${lastCls}" x1="${padL}" x2="${W - padR}" y1="${Y(last)}" y2="${Y(last)}"/>`);
+  tags.push({ cls: lastCls, y: Y(last), text: fmt(last) });
+  tags.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, tags[i - 1].y + 18);  // 겹치지 않게
+  tags.forEach((t) => out.push(`<g class="tag ${t.cls}"><rect class="${t.cls}" x="${W - padR + 2}" y="${t.y - 8}" width="${padR - 4}" height="16"/>
+    <text x="${W - padR + 6}" y="${t.y + 4}">${esc(t.text)}</text></g>`));
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(chart.meta.name)} 일봉 차트. 화살표 키로 날짜를 옮겨요">
+    ${out.join("")}<g id="chart-cross"></g><rect id="chart-hit" x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
+  chart.geo = { start, n, X, Y, bw, padL, padR, W, top, bottom: volTop + volH, lo, hi, priceH, fmt };
+  drawLegend();
+  drawCross();
+}
+
+function linePath(values, from, to, X, Y, cls) {
+  let d = "", pen = false;
+  for (let i = from; i < to; i++) {
+    const v = values[i];
+    if (v == null) { pen = false; continue; }
+    const x = X(i);
+    if (x < 0) continue;
+    d += `${pen ? "L" : "M"}${x.toFixed(1)},${Y(v).toFixed(1)}`;
+    pen = true;
+  }
+  return d ? `<path class="${cls}" d="${d}"/>` : "";
+}
+
+function drawCross() {
+  const g = chart.geo, el = $("chart-cross");
+  if (!g || !el) return;
+  if (chart.cursor == null) { el.innerHTML = ""; return; }
+  const x = g.X(chart.cursor.i);
+  let h = "";
+  h += `<line class="cross" x1="${x}" x2="${x}" y1="${g.top}" y2="${g.bottom}"/>`;
+  if (chart.cursor.y != null && chart.cursor.y <= g.top + g.priceH) {
+    const v = g.hi - ((chart.cursor.y - g.top) / g.priceH) * (g.hi - g.lo);
+    h += `<line class="cross" x1="${g.padL}" x2="${g.W - g.padR}" y1="${chart.cursor.y}" y2="${chart.cursor.y}"/>`;
+    h += `<g class="tag cur"><rect x="${g.W - g.padR + 2}" y="${chart.cursor.y - 8}" width="${g.padR - 4}" height="16"/><text x="${g.W - g.padR + 6}" y="${chart.cursor.y + 4}">${g.fmt(v)}</text></g>`;
+  }
+  el.innerHTML = h;
+}
+
+const WEEK = "일월화수목금토";
+function updateReadout() {
+  const d = chart.data, el = $("chart-read");
+  if (!d || !el) return;
+  const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
+  const [o, h, l, c] = d.ohlc[i], prev = i ? d.ohlc[i - 1][3] : null;
+  const chg = prev ? (c / prev - 1) * 100 : null;
+  const p = (v) => price(v, d.currency);
+  const day = new Date(d.dates[i] + "T00:00:00");
+  const live = i === n - 1 && d.summary?.intraday;
+  el.innerHTML = `<b class="${tone(chg)}">${p(c)}</b><span class="${tone(chg)}">${pct(chg)}</span>
+    <span>${d.dates[i].replaceAll("-", ".")}(${WEEK[day.getDay()]})${live ? " 장중" : ""}</span>
+    <span><span class="k">시</span>${p(o)}</span><span><span class="k">고</span>${p(h)}</span><span><span class="k">저</span>${p(l)}</span>
+    <span><span class="k">거래량</span>${man(d.volume[i])}</span>`;
+  drawLegend();
+}
+
+const LEGEND_KEY = {
+  "ma20": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-ma20"/>`,
+  "ma60": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-ma60"/>`,
+  "ma120": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-ma120"/>`,
+  "tenkan": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-tenkan"/>`,
+  "kijun": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-kijun"/>`,
+  "chikou": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-chikou"/>`,
+  "bb_upper": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-bb"/>`,
+  "bb_lower": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-bb"/>`,
+};
+function drawLegend() {
+  const d = chart.data, el = $("chart-legend");
+  if (!d || !el) return;
+  const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
+  const p = (v) => v == null ? "-" : price(v, d.currency);
+  const items = CHART_LINES.filter((l) => layerOn(l.layer)).map((l) =>
+    `<span><svg width="18" height="10" aria-hidden="true" class="cplot-key">${LEGEND_KEY[l.k]}</svg>${l.label} <b>${p(d.lines[l.k][i])}</b></span>`);
+  if (layerOn("ichimoku")) {
+    // 오늘 자리의 구름 = 25일 전에 계산한 선행스팬
+    const j = i - CLOUD_SHIFT, a = d.cloud.a[j], b = d.cloud.b[j];
+    items.push(`<span><svg width="18" height="10" aria-hidden="true"><rect width="18" height="10" rx="2" class="${a != null && b != null && a < b ? "cloud-down" : "cloud-up"}"/></svg>구름 <b>${a == null || b == null ? "-" : `${p(Math.min(a, b))}~${p(Math.max(a, b))}`}</b></span>`);
+  }
+  if (chart.meta.avg != null) items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>평단 <b>${p(chart.meta.avg)}</b></span>`);
+  el.innerHTML = items.join("");
+}
+
+function moveCursor(i, y = null) {
+  const g = chart.geo; if (!g) return;
+  const next = Math.max(g.start, Math.min(g.n - 1, i));
+  if (chart.cursor?.i === next && chart.cursor?.y === y) return;
+  chart.cursor = { i: next, y };
+  drawCross(); updateReadout();
+}
+$("chart-body").addEventListener("pointermove", (e) => {
+  const g = chart.geo, svg = e.target.closest(".cplot svg");
+  if (!g || !svg) return;
+  const r = svg.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  if (x > g.W - g.padR) return;
+  moveCursor(g.start + Math.floor((x - g.padL) / g.bw), y);
+});
+$("chart-body").addEventListener("pointerleave", (e) => {
+  if (!chart.geo || e.target.id !== "chart-plot") return;  // 차트 밖으로 나갈 때만 (안쪽 요소 사이 이동은 무시)
+  chart.cursor = null; drawCross(); updateReadout();
+}, true);
+$("chart-body").addEventListener("keydown", (e) => {
+  const g = chart.geo;
+  if (!g || !e.target.closest(".cplot svg")) return;
+  const i = chart.cursor?.i ?? g.n - 1;
+  const moves = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: g.start, End: g.n - 1, PageUp: i - 20, PageDown: i + 20 };
+  if (!(e.key in moves)) return;
+  e.preventDefault();
+  moveCursor(moves[e.key]);
+});
+new ResizeObserver(() => { if ($("chart").open && chart.data) drawChart(); }).observe($("chart-body"));
 </script>
 </body>
 </html>

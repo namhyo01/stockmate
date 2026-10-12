@@ -13,12 +13,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
-from stockmate import analysis, ideas, importers, memory, plans, portfolio, screenshots, sync
+from stockmate import analysis, ideas, importers, memory, plans, portfolio, screenshots, sync, technical
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
 from stockmate.config import settings
@@ -274,6 +274,18 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
         if ideas.set_status(session, idea_id, body.status) is None:
             raise HTTPException(404, "추천을 찾을 수 없어요.")
     return get_ideas()
+
+
+# ── 차트 ───────────────────────────────────────────
+
+
+@app.get("/api/chart")
+def get_chart(market: Market, symbol: str = Query(min_length=1, max_length=20), name: str | None = None) -> dict[str, Any]:
+    """종목의 일봉, 이동평균·일목균형표·볼린저, AI에게 넘기는 차트 요약."""
+    payload = technical.chart_payload(market, portfolio.normalize_symbol(symbol), name)
+    if payload is None:
+        raise HTTPException(404, "일봉을 가져오지 못했어요.")
+    return payload
 
 
 class Profile(BaseModel):

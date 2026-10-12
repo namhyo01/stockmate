@@ -398,3 +398,53 @@ def chart_context(targets: Iterable[tuple[Market, str, str]], source: DailyCandl
     if missing:
         blocks.append(f"(일봉을 가져오지 못했거나 상장 기간이 짧아 차트 지표가 없는 종목: {', '.join(missing)})")
     return "\n\n".join(blocks)
+
+
+# ── 대시보드 차트용 데이터 ──────────────────────────────
+
+
+def _series(values: pd.Series, digits: int) -> list[float | None]:
+    return [None if pd.isna(v) else round(float(v), digits) for v in values]
+
+
+def chart_series(frame: pd.DataFrame, market: Market) -> dict[str, Any]:
+    """대시보드 캔들 차트에 그릴 값. 선행스팬은 그리는 자리(25칸 뒤)로 옮기고, 그만큼 앞날짜를 붙인다."""
+    digits = 0 if market is Market.KRX else 2
+    close = frame["Close"]
+    ich = ichimoku(frame)
+    mid, std = close.rolling(20).mean(), close.rolling(20).std()
+    # 앞날짜는 평일로만 잡는다 (휴장일은 모르므로 대략적인 위치)
+    future = pd.bdate_range(frame.index[-1] + pd.Timedelta(days=1), periods=SHIFT)
+    dates = [d.strftime("%Y-%m-%d") for d in frame.index]
+    cloud_dates = dates[SHIFT:] + [d.strftime("%Y-%m-%d") for d in future]
+    return {
+        "dates": dates,
+        "ohlc": [[round(float(v), digits) for v in row] for row in frame[["Open", "High", "Low", "Close"]].to_numpy()],
+        "volume": [0 if pd.isna(v) else int(v) for v in frame["Volume"]],
+        "lines": {
+            **{f"ma{n}": _series(close.rolling(n).mean(), digits) for n in (5, 20, 60, 120)},
+            "tenkan": _series(ich["tenkan"], digits),
+            "kijun": _series(ich["kijun"], digits),
+            "chikou": _series(close.shift(-SHIFT), digits),  # 오늘 종가를 25칸 앞에 그린다
+            "bb_upper": _series(mid + 2 * std, digits),
+            "bb_lower": _series(mid - 2 * std, digits),
+        },
+        # 구름: cloud_dates[i]에 그릴 선행스팬 A·B (frame.index[i]에 계산한 값)
+        "cloud": {"dates": cloud_dates, "a": _series(ich["span_a"], digits), "b": _series(ich["span_b"], digits)},
+    }
+
+
+def chart_payload(market: Market, symbol: str, name: str | None = None, source: DailyCandles | None = None) -> dict[str, Any] | None:
+    """종목 하나의 차트 데이터와 지표 요약 (AI에게 넘기는 글과 같은 내용). 일봉이 없으면 None."""
+    frame = (source or candles).get([(market, symbol)]).get((market, symbol))
+    if frame is None or frame.empty:
+        return None
+    summary = summarize(frame, market)
+    return {
+        "symbol": symbol,
+        "market": market.value,
+        "currency": market.currency,
+        "summary": summary,
+        "text": describe(name or symbol, symbol, market, summary) if summary else None,
+        **chart_series(frame, market),
+    }

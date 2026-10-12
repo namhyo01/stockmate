@@ -179,6 +179,7 @@ def idea_rows(session: Session, provider: PriceProvider) -> dict[str, Any]:
             "id": idea.id,
             "name": idea.name,
             "symbol": idea.symbol,
+            "market": market.value if market else None,
             "currency": market.currency if market else "KRW",
             "account": idea.account,
             "summary": idea.summary,

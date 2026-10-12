@@ -134,3 +134,27 @@ def test_chart_targets_merges_holdings_ideas_and_question_codes():
 def test_prompt_includes_charts():
     prompt = analysis.build_prompt({"positions": []}, "기억", "#### 삼성전자 차트")
     assert "## 차트 점검" in prompt and "#### 삼성전자 차트" in prompt
+
+
+def test_chart_series_shifts_cloud_forward():
+    frame = make_frame([100 + i for i in range(120)])
+    series = technical.chart_series(frame, Market.KRX)
+    n = len(frame)
+    assert len(series["dates"]) == len(series["ohlc"]) == len(series["volume"]) == n
+    cloud = series["cloud"]
+    assert len(cloud["dates"]) == len(cloud["a"]) == n
+    # 선행스팬은 계산한 날에서 25칸 뒤에 그린다: 마지막 25개는 앞날짜(평일)
+    assert cloud["dates"][0] == series["dates"][technical.SHIFT]
+    assert cloud["dates"][-1] > series["dates"][-1]
+    assert pd.Timestamp(cloud["dates"][-1]).weekday() < 5
+    # 후행스팬: 오늘 종가를 25칸 앞 자리에 그리므로 마지막 25칸은 비어 있다
+    assert series["lines"]["chikou"][-technical.SHIFT:] == [None] * technical.SHIFT
+    assert series["lines"]["chikou"][-technical.SHIFT - 1] == series["ohlc"][-1][3]
+
+
+def test_chart_payload_includes_summary_text():
+    frames = {(Market.US, "AAPL"): make_frame([100 + i for i in range(200)])}
+    source = technical.DailyCandles(lambda m, s: frames.get((m, s)))
+    payload = technical.chart_payload(Market.US, "AAPL", "애플", source=source)
+    assert payload["currency"] == "USD" and payload["text"].startswith("#### 애플")
+    assert technical.chart_payload(Market.US, "NOPE", source=source) is None

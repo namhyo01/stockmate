@@ -42,7 +42,7 @@ data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_
 
 - **AI는 Anthropic API 키가 아니라 Claude Code 구독으로 돌린다.** `analysis.py`가 `claude -p --tools WebSearch --strict-mcp-config`로 새 세션을 띄운다. anthropic SDK나 ANTHROPIC_API_KEY를 추가하지 않는다.
 - **주문 기능은 만들지 않는다.** API 키 유출 대비가 아니라, AI(외부 텍스트를 읽는 claude -p)에게 매매 경로를 주지 않기 위해서다. 사용자가 원하면 "사람이 CLI에서 직접 승인해야 실행 + 금액 한도 + 모의투자 먼저 + cron에서는 불가" 조건으로만 만든다.
-- **차트 지표는 코드가 계산하고 AI는 해석만 한다.** 분석·질문 프롬프트에 보유 종목, 추천 탭 종목, 질문에 쓴 6자리 코드의 `technical.chart_context()` 요약이 들어간다. 분석 리포트에는 "차트 점검" 섹션이 있다.
+- **차트 지표는 코드가 계산하고 AI는 해석만 한다.** 분석·질문 프롬프트에 보유 종목, 추천 탭 종목, 질문에 쓴 6자리 코드·대문자 미국 티커(`analysis.question_symbols`, 일봉이 없으면 조용히 뺀다)의 `technical.chart_context()` 요약이 들어간다. 분석 리포트에는 "차트 점검" 섹션이 있다.
 - **기억은 파일과 DB로 쌓는다** (모델 재학습이 아님). 분석·질문 때마다 `memory.build_context()`가 프로필, 최근 추천 2회분과 이후 가격 변화, 최근 대화 5개를 프롬프트에 넣는다.
   - `data/memory/profile.md`: 사람이 고칠 수 있는 투자자 프로필. Claude 응답 끝의 ```profile / ```plan 블록, 분석 JSON의 lessons가 자동으로 추가된다.
   - `data/memory/conversations/YYYY-MM.md`: 웹 질문 전체 기록. 대시보드 "지난 질문"에 최신순으로 보인다 (`/api/conversations`).

@@ -113,7 +113,7 @@ def test_chart_context_describes_and_lists_missing():
     assert "없는 종목(NOPE)" in text
 
 
-def test_chart_targets_merges_holdings_ideas_and_question_codes():
+def test_chart_targets_merges_holdings_and_ideas():
     snapshot = {
         "positions": [
             {"market": "KRX", "symbol": "005930", "name": "삼성전자"},
@@ -122,13 +122,24 @@ def test_chart_targets_merges_holdings_ideas_and_question_codes():
         ]
     }
     active = [Idea(name="버크셔", symbol="BRK-B", market=None), Idea(name="종목코드 없음", symbol=None)]
-    targets = analysis.chart_targets(snapshot, active, "000660 지금 사도 될까?")
-    assert targets == [
+    assert analysis.chart_targets(snapshot, active) == [
         (Market.KRX, "005930", "삼성전자"),
         (Market.US, "AAPL", "애플"),
         (Market.US, "BRK-B", "버크셔"),
-        (Market.KRX, "000660", "000660"),
     ]
+
+
+def test_question_symbols_finds_codes_and_us_tickers():
+    found = analysis.question_symbols("NVDA랑 BRK.B, 000660 중에 ETF 말고 뭐가 나아? RSI랑 FOMC도 봐줘. S&P500은?")
+    assert found == [(Market.KRX, "000660", "000660"), (Market.US, "NVDA", "NVDA"), (Market.US, "BRK-B", "BRK-B")]
+    assert analysis.question_symbols("엔비디아 어때?") == []
+
+
+def test_optional_symbols_are_dropped_silently_when_missing():
+    frames = {(Market.US, "NVDA"): make_frame([100 + i for i in range(200)])}
+    source = technical.DailyCandles(lambda m, s: frames.get((m, s)))
+    text = technical.chart_context([], source=source, optional=[(Market.US, "NVDA", "NVDA"), (Market.US, "TOP", "TOP")])
+    assert "#### NVDA (NVDA, US)" in text and "TOP" not in text
 
 
 def test_prompt_includes_charts():

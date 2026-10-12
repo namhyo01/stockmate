@@ -377,14 +377,23 @@ CHART_GUIDE = """아래는 프로그램이 일봉으로 계산한 차트 지표�
 - 차트는 뉴스·실적과 함께 판단하세요. 차트와 펀더멘털이 엇갈리면 둘 다 밝히세요."""
 
 
-def chart_context(targets: Iterable[tuple[Market, str, str]], source: DailyCandles | None = None) -> str:
-    """(시장, 종목코드, 이름) 목록의 차트 요약 글. 일봉을 못 가져온 종목은 그렇다고 적는다."""
+def chart_context(
+    targets: Iterable[tuple[Market, str, str]],
+    source: DailyCandles | None = None,
+    optional: Iterable[tuple[Market, str, str]] = (),
+) -> str:
+    """(시장, 종목코드, 이름) 목록의 차트 요약 글. 일봉을 못 가져온 종목은 그렇다고 적는다.
+
+    optional은 질문 글에서 찾은 후보처럼 실제 종목이 아닐 수도 있는 것들이라, 못 가져오면 조용히 뺀다.
+    """
     targets = list(dict.fromkeys(targets))
-    if not targets:
+    optional = [t for t in dict.fromkeys(optional) if t not in targets]
+    if not targets and not optional:
         return "(대상 종목 없음)"
-    frames = (source or candles).get((m, s) for m, s, _ in targets)
+    frames = (source or candles).get((m, s) for m, s, _ in targets + optional)
     blocks, missing = [], []
-    for market, symbol, name in targets:
+    for market, symbol, name in targets + optional:
+        is_optional = (market, symbol, name) in optional
         summary = None
         if (frame := frames.get((market, symbol))) is not None:
             try:
@@ -393,7 +402,7 @@ def chart_context(targets: Iterable[tuple[Market, str, str]], source: DailyCandl
                 log.warning("차트 지표 계산 실패 %s: %s", symbol, e)
         if summary:
             blocks.append(describe(name, symbol, market, summary))
-        else:
+        elif not is_optional:
             missing.append(f"{name}({symbol})")
     if missing:
         blocks.append(f"(일봉을 가져오지 못했거나 상장 기간이 짧아 차트 지표가 없는 종목: {', '.join(missing)})")

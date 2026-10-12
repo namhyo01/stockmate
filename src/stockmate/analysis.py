@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -16,10 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from stockmate import ideas, memory, plans
+from stockmate import ideas, memory, plans, technical
 from stockmate.config import settings
 from stockmate.db import session_scope
-from stockmate.models import PlanItem
+from stockmate.models import Idea, Market, PlanItem
+from stockmate.portfolio import detect_market
 
 ANALYSIS_DIR = settings.db_path.parent / "analyses"
 TIMEOUT_SECONDS = 15 * 60
@@ -37,15 +39,19 @@ _INSTRUCTIONS = """당신은 한국 개인 투자자의 포트폴리오를 관�
 
 ## 할 일
 1. 비중 상위 종목과 손실이 큰 종목의 최근 뉴스, 실적, 예정된 이벤트를 웹 검색으로 확인하세요 (검색은 10회 이내).
-2. 계좌를 가로질러 포트폴리오 전체를 진단하세요: 종목·섹터 집중도, 실제 투자 지역, 레버리지 ETF 비중, 현금 비중, 계좌별 역할(어떤 자산을 어느 계좌에 두는 게 세금상 유리한지).
-3. 종목마다 의견을 내세요.
-4. 이번 달 실행 계획을 세우세요: 삼성연금 40만원으로 살 ETF와 수량(현재가 기준), ISA 예수금 활용 방안, 정리·교체 후보와 어느 계좌에서 무엇을 할지.
+2. "차트 지표"로 종목마다 추세(상승·하락·횡보), 일목균형표 구름과 이동평균 기준의 위치, 모멘텀, 가까운 지지·저항을 판단하세요.
+3. 계좌를 가로질러 포트폴리오 전체를 진단하세요: 종목·섹터 집중도, 실제 투자 지역, 레버리지 ETF 비중, 현금 비중, 계좌별 역할(어떤 자산을 어느 계좌에 두는 게 세금상 유리한지).
+4. 종목마다 의견을 내세요. 뉴스·실적과 차트를 함께 근거로 쓰세요.
+5. 이번 달 실행 계획을 세우세요: 삼성연금 40만원으로 살 ETF와 수량(현재가 기준), ISA 예수금 활용 방안, 정리·교체 후보와 어느 계좌에서 무엇을 할지.
 
 ## 출력 형식
 마크다운 리포트만 출력하세요 (앞뒤 인사말 없이). 아래 섹션을 이 순서대로 쓰세요.
 
 ## 한 줄 요약
 ## 포트폴리오 진단
+## 차트 점검
+| 종목 | 추세 | 일목·이평 위치 | 지지 / 저항 | 신호 |
+표 아래에 눈여겨볼 차트 신호(구름 돌파·이탈, 크로스, 과매수·과매도, 밴드 수축, 반전 캔들)를 시나리오로 짧게 쓰세요.
 ## 종목별 의견
 | 종목 | 계좌 | 의견 | 근거 | 관심 가격대 |
 의견은 **추가매수 / 보유 / 비중축소 / 정리 검토** 중 하나만 쓰세요.
@@ -76,6 +82,11 @@ _INSTRUCTIONS = """당신은 한국 개인 투자자의 포트폴리오를 관�
 
 {context}
 
+## 차트 지표 (일봉)
+{chart_guide}
+
+{charts}
+
 ## 포트폴리오
 ```json
 {snapshot}
@@ -88,6 +99,7 @@ _QUESTION = """당신은 한국 개인 투자자의 포트폴리오를 관리하
 - 한국어로, 핵심부터 간결하게 답하세요 (마크다운 가능).
 - 계좌 규칙: 토스=일반, 한투=ISA 중개형 서민형(국내 상장 상품만), 삼성연금=연금저축(월 40만원, ETF·펀드만, 레버리지 불가).
 - 매매 의견을 줄 때는 근거와 리스크를 함께 쓰고, 마지막에 참고용이라는 점을 한 줄로 밝히세요.
+- 매매 시점·가격대·차트를 묻거나 매매를 추천할 때는 아래 "차트 지표"를 근거로 쓰세요. 지표가 없는 종목의 차트는 지어내지 말고, 웹 검색으로 확인한 내용이라면 출처를 밝히세요.
 - 아래 기억(투자자 프로필, 지난 추천, 최근 대화)을 바탕으로 앞선 대화와 이어지게 답하세요.
 - 답변 맨 끝에 기억할 내용을 코드블록으로 남길 수 있습니다 (투자자 프로필에 저장되고 화면에는 따로 표시됩니다). 사용자가 직접 말한 것만 적고, 해당하는 게 없으면 블록을 붙이지 마세요.
   - 사용자가 투자 목표·성향·원칙·선호를 새로 밝혔다면 profile 블록에 한 줄씩:
@@ -120,6 +132,11 @@ _QUESTION = """당신은 한국 개인 투자자의 포트폴리오를 관리하
 ## 최근 분석 리포트
 {latest}
 
+## 차트 지표 (일봉)
+{chart_guide}
+
+{charts}
+
 ## 포트폴리오
 ```json
 {snapshot}
@@ -137,14 +154,40 @@ class Analysis:
     markdown: str
 
 
-def build_prompt(snapshot: dict[str, Any], context: str) -> str:
+def build_prompt(snapshot: dict[str, Any], context: str, charts: str = "(없음)") -> str:
     return _INSTRUCTIONS.format(
         actions_guide=plans.ACTIONS_GUIDE,
         ideas_guide=ideas.IDEAS_GUIDE,
         today=datetime.now().strftime("%Y-%m-%d"),
         context=context,
+        chart_guide=technical.CHART_GUIDE,
+        charts=charts,
         snapshot=json.dumps(snapshot, ensure_ascii=False, indent=1),
     )
+
+
+_KRX_CODE = re.compile(r"(?<!\d)\d{6}(?!\d)")
+
+
+def chart_targets(
+    snapshot: dict[str, Any], active_ideas: list[Idea], question: str = ""
+) -> list[tuple[Market, str, str]]:
+    """차트 지표를 붙일 종목: 보유 종목, 추천 탭의 종목(최근 10개), 질문에 쓴 국내 종목코드. 같은 종목은 한 번만."""
+    targets = [(Market(p["market"]), p["symbol"], p["name"]) for p in snapshot.get("positions", [])]
+    targets += [
+        (idea.market or detect_market(idea.symbol), idea.symbol, idea.name) for idea in active_ideas[:10] if idea.symbol
+    ]
+    targets += [(Market.KRX, code, code) for code in _KRX_CODE.findall(question)]
+    seen: dict[tuple[Market, str], tuple[Market, str, str]] = {}
+    for market, symbol, name in targets:
+        seen.setdefault((market, symbol), (market, symbol, name))
+    return list(seen.values())
+
+
+def chart_text(snapshot: dict[str, Any], question: str = "") -> str:
+    with session_scope() as session:
+        targets = chart_targets(snapshot, ideas.active_ideas(session), question)
+    return technical.chart_context(targets)
 
 
 def claude_binary() -> str:
@@ -208,7 +251,8 @@ def run_analysis(snapshot: dict[str, Any]) -> Analysis:
     """
     with session_scope() as session:
         context = memory.build_context(session, snapshot)
-    report = memory.parse_report(_run_claude(build_prompt(snapshot, context)))
+    charts = chart_text(snapshot)
+    report = memory.parse_report(_run_claude(build_prompt(snapshot, context, charts)))
 
     created_at = datetime.now().replace(microsecond=0)
     (ANALYSIS_DIR / f"{created_at:%Y%m%d-%H%M%S}.md").write_text(report.markdown, encoding="utf-8")
@@ -250,6 +294,8 @@ def ask(snapshot: dict[str, Any], question: str) -> Answer:
             question=question,
             context=context,
             latest=latest.markdown if latest else "(아직 없음)",
+            chart_guide=technical.CHART_GUIDE,
+            charts=chart_text(snapshot, question),
             snapshot=json.dumps(snapshot, ensure_ascii=False, indent=1),
         )
     )

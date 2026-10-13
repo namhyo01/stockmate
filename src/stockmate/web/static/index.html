@@ -723,6 +723,26 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .cplot .tag.avg rect { fill: var(--ink-2); } .tag.avg text { fill: var(--surface); }
 .cplot .tag.cur rect { fill: var(--ink); } .tag.cur text { fill: var(--surface); }
 .cplot .cross { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 2; }
+/* AI 가격선: 사는 구간(빨강 띠), 철회 기준(파랑 점선), 목표가(진한 점선), 계획 가격(얇은 선) */
+.lv-band.buy { fill: color-mix(in srgb, var(--up) 11%, transparent); }
+.lv-band.watch { fill: color-mix(in srgb, var(--ink-3) 12%, transparent); }
+.lv-edge.buy, .lv-line.plan-buy { stroke: var(--up); stroke-width: 1; stroke-dasharray: 4 3; }
+.lv-edge.watch { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; }
+.lv-line.stop, .lv-line.plan-sell { stroke: var(--down); stroke-width: 1.4; stroke-dasharray: 6 3; }
+.lv-line.target { stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 6 3; }
+.lv-t { font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.lv-t.buy, .lv-t.plan-buy { fill: var(--up); } .lv-t.stop, .lv-t.plan-sell { fill: var(--down); } .lv-t.target, .lv-t.watch { fill: var(--ink); }
+.cai { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--sunken); }
+.cai h4 { margin: 0 0 8px; font-size: 14px; }
+.cai-op { display: grid; gap: 3px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.cai-op:first-of-type { border-top: 0; padding-top: 0; }
+.cai-op .src { font-size: 12px; color: var(--ink-3); }
+.cai-op .vd { font-weight: 750; font-size: 15px; }
+.cai-op .lv { color: var(--ink-2); }
+.cai-op .lv b { color: var(--ink); }
+.cai-op .st { font-weight: 650; }
+.cai-op .st.in { color: var(--warn-ink); }
+.cai-empty { font-size: 13.5px; color: var(--ink-2); }
 .cplot .future-label { fill: var(--ink-3); font-size: 11px; }
 .clegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .clegend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -2212,7 +2232,7 @@ showView(viewFromHash());
 
 /* ── 차트 (일봉 캔들 + 이동평균·일목균형표·볼린저) ─────────────── */
 const CHART_RANGES = [[63, "3개월"], [126, "6개월"], [250, "1년"], [0, "전체"]];
-const CHART_LAYERS = [["ma", "이동평균"], ["ichimoku", "일목균형표"], ["bb", "볼린저밴드"]];
+const CHART_LAYERS = [["ai", "AI 가격선"], ["ma", "이동평균"], ["ichimoku", "일목균형표"], ["bb", "볼린저밴드"]];
 const CHART_LINES = [
   { k: "ma20", layer: "ma", label: "20일선" },
   { k: "ma60", layer: "ma", label: "60일선" },
@@ -2290,6 +2310,7 @@ function renderChartShell() {
     <div class="cread" data-c="read" aria-live="off"></div>
     <div class="cplot" data-c="plot">${d ? "" : `<div class="loading"><span><span class="spin"></span> 일봉을 불러오는 중이에요</span></div>`}</div>
     <div class="clegend" data-c="legend"></div>
+    ${d && d.currency !== "INDEX" ? aiOpinion(d) : ""}
     ${d?.text ? chartSummary(d.text) : ""}`;
   if (d) { drawChart(); updateReadout(); }
 }
@@ -2312,6 +2333,66 @@ root.addEventListener("click", (e) => {
   chart.cursor = null;
   drawChart(); updateReadout();
 });
+}
+
+// AI가 낸 가격을 차트 선으로: 가장 최근 의견의 사는 구간·철회 기준·목표가(없으면 리포트 관심 가격대) + 열린 계획
+function aiPriceLines(d) {
+  const lv = d?.levels; if (!lv) return [];
+  const p = (v) => chartPrice(v, d);
+  const out = [];
+  const main = lv.opinions.find((o) => o.entry_low != null || o.entry_high != null || o.stop != null || o.target != null);
+  if (main) {
+    const lo = main.entry_low ?? main.entry_high, hi = main.entry_high ?? main.entry_low;
+    if (lo != null) out.push(lo === hi ? { kind: "line", cls: "plan-buy", from: lo, text: `AI 매수가 ${p(lo)}` }
+      : { kind: "band", cls: "buy", from: Math.min(lo, hi), to: Math.max(lo, hi), text: `AI 매수 구간 ${p(Math.min(lo, hi))}~${p(Math.max(lo, hi))}` });
+    if (main.stop != null) out.push({ kind: "line", cls: "stop", from: main.stop, text: `철회 기준 ${p(main.stop)}` });
+    if (main.target != null) out.push({ kind: "line", cls: "target", from: main.target, text: `목표가 ${p(main.target)}` });
+  } else {
+    const w = lv.opinions.find((o) => o.watch_low != null || o.watch_high != null);
+    if (w) {
+      const a = w.watch_low ?? w.watch_high, b = w.watch_high ?? w.watch_low;
+      out.push({ kind: "band", cls: "watch", from: Math.min(a, b), to: Math.max(a, b), text: `리포트 관심 가격대 ${p(Math.min(a, b))}~${p(Math.max(a, b))}` });
+    }
+  }
+  for (const pl of lv.plans) {
+    const side = pl.side === "buy" ? "매수" : "매도";
+    if (pl.price_high != null) out.push({ kind: "line", cls: `plan-${pl.side}`, from: pl.price_high, text: `계획 #${pl.id} ${side} ${p(pl.price_high)} 이하` });
+    if (pl.price_low != null) out.push({ kind: "line", cls: `plan-${pl.side}`, from: pl.price_low, text: `계획 #${pl.id} ${side} ${p(pl.price_low)} 이상` });
+  }
+  return out;
+}
+
+// 차트 요약 위 'AI 의견': 어디서 언제 낸 의견인지, 사는 가격대와 지금 가격의 거리
+function aiOpinion(d) {
+  const lv = d?.levels;
+  if (!lv) return "";
+  const p = (v) => chartPrice(v, d);
+  const now = d.ohlc.at(-1)[3];
+  const when = (iso) => iso ? new Date(iso).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : "";
+  const zoneState = (o) => {
+    const lo = o.entry_low ?? o.watch_low, hi = o.entry_high ?? o.watch_high;
+    if (o.stop != null && now < o.stop) return `<span class="st down">지금 가격이 철회 기준 아래예요</span>`;
+    if (lo == null && hi == null) return "";
+    if ((lo == null || now >= lo) && (hi == null || now <= hi)) return `<span class="st in">지금 가격이 사는 구간 안이에요</span>`;
+    if (hi != null && now > hi) return `<span class="st">사는 구간까지 ${((1 - hi / now) * 100).toFixed(1)}% 더 내려와야 해요</span>`;
+    return `<span class="st">사는 구간보다 ${((1 - now / lo) * 100).toFixed(1)}% 아래예요</span>`;
+  };
+  const ops = lv.opinions.map((o) => {
+    const parts = [];
+    const lo = o.entry_low ?? o.watch_low, hi = o.entry_high ?? o.watch_high;
+    if (lo != null || hi != null) parts.push(`${o.source === "report" ? "관심 가격대" : "사는 가격대"} <b>${lo != null && hi != null && lo !== hi ? `${p(lo)}~${p(hi)}` : p(lo ?? hi)}</b>`);
+    if (o.stop != null) parts.push(`철회 기준 <b>${p(o.stop)}</b>`);
+    if (o.target != null) parts.push(`목표가 <b>${p(o.target)}</b>`);
+    const verdict = o.verdict || (o.horizon ? { swing: "스윙 추천", long: "장기 추천" }[o.horizon] : o.source === "idea" ? "추천" : "");
+    return `<div class="cai-op"><span class="src">${esc(o.label)} · ${when(o.at)}</span>
+      ${verdict ? `<span class="vd">${esc(verdict)}</span>` : ""}${o.summary ? `<span>${esc(o.summary)}</span>` : ""}
+      ${parts.length ? `<span class="lv">${parts.join(" · ")}</span>` : ""}${zoneState(o)}</div>`;
+  });
+  const plansHtml = lv.plans.map((pl) => `<div class="cai-op"><span class="src">계획 탭 #${pl.id} · ${esc(pl.account || "")}</span>
+    <span>${pl.side === "buy" ? "매수" : "매도"} ${pl.quantity ? `${qty(pl.quantity)}주` : pl.amount_krw ? `${won(pl.amount_krw)}원` : ""}
+    ${pl.price_low != null || pl.price_high != null ? ` · ${pl.price_low != null ? p(pl.price_low) : ""}~${pl.price_high != null ? p(pl.price_high) : ""}` : ""}${pl.timing ? ` · ${esc(pl.timing)}` : ""}</span></div>`);
+  const body = ops.concat(plansHtml).join("");
+  return `<section class="cai"><h4>AI 의견과 가격선</h4>${body || `<p class="cai-empty">아직 이 종목에 대한 AI 의견이 없어요. <button type="button" class="btn sm" data-goto-search>검색 탭에서 AI 분석하기</button></p>`}</section>`;
 }
 
 // 서버가 AI에게 넘기는 차트 요약 글을 그대로 보여준다 ("- 항목: 내용" 줄들)
@@ -2354,6 +2435,9 @@ function drawChart() {
   const cloudFrom = Math.max(0, start - CLOUD_SHIFT);
   if (ich) for (let i = cloudFrom; i < n; i++) { take(d.cloud.a[i]); take(d.cloud.b[i]); }
   if (chart.meta.avg != null && chart.meta.avg >= lo * 0.85 && chart.meta.avg <= hi * 1.15) take(chart.meta.avg);
+  const aiLines = layerOn("ai") ? aiPriceLines(d) : [];
+  const cLo = lo, cHi = hi;
+  aiLines.forEach((l) => [l.from, l.to].forEach((v) => { if (v != null && v >= cLo * 0.8 && v <= cHi * 1.2) take(v); }));
   const pad = (hi - lo) * 0.06 || hi * 0.02;
   lo -= pad; hi += pad;
   const Y = (v) => top + ((hi - v) / (hi - lo)) * priceH;
@@ -2426,6 +2510,30 @@ function drawChart() {
   }
   // 지표 선 (후행스팬은 오늘 종가를 25칸 앞에 그린 값이라 그대로 같은 자리에 그린다)
   lines.forEach((l) => out.push(linePath(d.lines[l.k], start, n, X, Y, `ln ${l.cls || `l-${l.k}`}`)));
+
+  // AI 가격선: 사는 구간은 띠, 철회 기준·목표가·계획 가격은 선. 글자는 왼쪽에 (오른쪽 가격 표시와 겹치지 않게)
+  const x0 = padL, x1 = W - padR;
+  const inView = (v) => v != null && v > lo && v < hi;
+  const placed = [];
+  const label = (y, text, cls) => {
+    // 글자는 자기 선 바로 위에 두고, 다른 글자와 겹치면 오른쪽으로 옮긴다 (위아래로 밀면 어느 선 글자인지 헷갈린다)
+    const w = text.length * 6.6 + 12, ly = y - 4;
+    let x = x0 + 6;
+    while (placed.some((r) => Math.abs(r.y - ly) < 12 && x < r.x + r.w && r.x < x + w) && x + w < x1) x += 12;
+    placed.push({ x, y: ly, w });
+    out.push(`<text class="lv-t ${cls}" x="${x}" y="${ly}">${esc(text)}</text>`);
+  };
+  for (const l of aiLines) {
+    if (l.kind === "band" && (inView(l.from) || inView(l.to) || (l.from <= lo && l.to >= hi))) {
+      const yt = Y(Math.min(l.to, hi)), yb = Y(Math.max(l.from, lo));
+      out.push(`<rect class="lv-band ${l.cls}" x="${x0}" y="${yt}" width="${x1 - x0}" height="${Math.max(1, yb - yt)}"/>`);
+      [l.from, l.to].filter(inView).forEach((v) => out.push(`<line class="lv-edge ${l.cls}" x1="${x0}" x2="${x1}" y1="${Y(v)}" y2="${Y(v)}"/>`));
+      label(yt, l.text, l.cls);
+    } else if (l.kind === "line" && inView(l.from)) {
+      out.push(`<line class="lv-line ${l.cls}" x1="${x0}" x2="${x1}" y1="${Y(l.from)}" y2="${Y(l.from)}"/>`);
+      label(Y(l.from), l.text, l.cls);
+    }
+  }
 
   // 평단·현재가 기준선과 오른쪽 표시
   const tags = [];
@@ -2517,6 +2625,10 @@ function drawLegend() {
     items.push(`<span><svg width="18" height="10" aria-hidden="true"><rect width="18" height="10" rx="2" class="${a != null && b != null && a < b ? "cloud-down" : "cloud-up"}"/></svg>구름 <b>${a == null || b == null ? "-" : `${p(Math.min(a, b))}~${p(Math.max(a, b))}`}</b></span>`);
   }
   if (chart.meta.avg != null) items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>평단 <b>${p(chart.meta.avg)}</b></span>`);
+  if (layerOn("ai")) for (const l of aiPriceLines(d)) {
+    const key = l.kind === "band" ? `<rect width="18" height="10" rx="2" class="lv-band ${l.cls}"/>` : `<line x1="0" x2="18" y1="5" y2="5" class="lv-line ${l.cls}"/>`;
+    items.push(`<span><svg width="18" height="10" aria-hidden="true">${key}</svg>${esc(l.text)}</span>`);
+  }
   el.innerHTML = items.join("");
 }
 
@@ -2554,6 +2666,13 @@ root.addEventListener("keydown", (e) => {
 new ResizeObserver(() => { if (chart.root === root && chart.data && root.offsetParent) drawChart(); }).observe(root);
 }
 bindChartRoot($("chart-body")); bindChartPointer($("chart-body"));
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-goto-search]")) return;
+  const meta = chart.meta;
+  if ($("chart").open) $("chart").close();
+  if (state.view !== "search") location.hash = "search";
+  setTimeout(() => selectStock({ market: meta.market, symbol: meta.symbol, name: meta.name }).then(() => $("search-analyze").scrollIntoView({ block: "center" })));
+});
 
 /* ── 시장 지표 띠 ─────────────────────── */
 const ticker = { keys: "", last: {} };
@@ -2754,6 +2873,7 @@ $("search-idea").addEventListener("click", async () => {
     await api("/api/stock/idea", { method: "POST", body: JSON.stringify({ market: meta.market, symbol: meta.symbol }) });
     search.inIdeas = true;
     idea.data = null;  // 추천 탭을 열면 새로 불러온다
+    refreshLevels(meta);
     toast(`${meta.name}을(를) 추천 탭에 담았어요`);
   } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
   finally { busy(btn, false); if (search.current === meta) renderIdeaButton(); }
@@ -2774,6 +2894,7 @@ $("search-analyze").addEventListener("click", async () => {
     const a = await api("/api/stock/analyze", { method: "POST", body: JSON.stringify({ market: meta.market, symbol: meta.symbol, name: meta.name }) });
     if (search.current === meta) renderStockAnalysis(a);
     toast(`${meta.name} 분석을 마쳤어요`);
+    refreshLevels(meta);
   } catch (e) {
     toast(`분석하지 못했어요: ${e.message}`, "error");
     if (search.current === meta) $("search-ai").innerHTML = `<p class="quiet">분석하지 못했어요: ${esc(e.message)}</p>`;
@@ -2820,6 +2941,16 @@ function readPlanRows() {
     el.querySelectorAll("[data-f]").forEach((f) => { r[f.dataset.f] = f.type === "checkbox" ? f.checked : f.value.trim() || null; });
   });
 }
+// 분석·추천 담기·계획 담기 뒤에 지금 그려진 차트의 AI 가격선을 새로 받는다
+async function refreshLevels(meta) {
+  if (!meta || meta.market === "INDEX") return;
+  try {
+    const lv = await api(`/api/stock/levels?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`);
+    if (search.chart?.meta.symbol === meta.symbol) search.chart.data.levels = lv;
+    if (chart.data && chart.meta?.symbol === meta.symbol) { chart.data.levels = lv; renderChartShell(); }
+  } catch { /* 선은 다음에 차트를 열 때 맞춰진다 */ }
+}
+
 // 초안을 받아 창을 연다. 검색 탭(종목 분석)과 추천 탭(추천 카드)이 같이 쓴다.
 async function openPlanSheet(btn, meta, url, label = "초안 만드는 중") {
   busy(btn, true, label);
@@ -2873,6 +3004,7 @@ $("plansheet-save").addEventListener("click", async () => {
     $("plansheet").close();
     toast(`계획 탭에 담았어요: ${d.changes.join(", ")}`);
     if (psheet.meta.fromIdea && state.view === "ideas") loadIdeas();  // 카드에 '계획 보기'가 생긴다
+    refreshLevels(psheet.meta);
   } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
   finally { busy(btn, false); }
 });

@@ -40,7 +40,7 @@ src/stockmate/
   ideas.py         AI 추천 종목: ```ideas 블록(JSON 배열) → Idea (이유·리스크·겹침·출처, 추천 때 가격 대비 변화)
   plans.py         매매 계획: Claude 응답의 ```actions 블록(add/done/cancel) → PlanItem, 계획 탭용 조건 충족 여부
   web/app.py       FastAPI (JSON API + 정적 페이지, WEB_PASSWORD 있으면 Basic 인증)
-  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 6개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")을 누르면 캔들 차트 창이 열린다(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, 아래에 AI가 받는 차트 요약)
+  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 6개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")을 누르면 캔들 차트 창이 열린다(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, "AI 가격선" 층: AI 매수 구간·철회 기준·목표가·리포트 관심 가격대·열린 계획 가격(`research.levels`), 아래에 "AI 의견과 가격선"과 AI가 받는 차트 요약)
 data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_token.json, toss_token.json
 ```
 

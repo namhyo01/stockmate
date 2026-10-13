@@ -409,10 +409,20 @@ def get_index_chart(key: str) -> dict[str, Any]:
 @app.get("/api/chart")
 def get_chart(market: Market, symbol: str = Query(min_length=1, max_length=20), name: str | None = None) -> dict[str, Any]:
     """종목의 일봉, 이동평균·일목균형표·볼린저, AI에게 넘기는 차트 요약."""
-    payload = technical.chart_payload(market, portfolio.normalize_symbol(symbol), name)
+    symbol = portfolio.normalize_symbol(symbol)
+    payload = technical.chart_payload(market, symbol, name)
     if payload is None:
         raise HTTPException(404, "일봉을 가져오지 못했어요.")
+    with session_scope() as session:
+        payload["levels"] = research.levels(session, market, symbol)  # AI가 낸 가격선과 의견
     return payload
+
+
+@app.get("/api/stock/levels")
+def get_levels(market: Market, symbol: str = Query(min_length=1, max_length=20)) -> dict[str, Any]:
+    """차트의 AI 가격선과 의견만 (분석·담기 뒤 차트를 다시 그릴 때)."""
+    with session_scope() as session:
+        return research.levels(session, market, portfolio.normalize_symbol(symbol))
 
 
 # ── 매주 종목 발굴 ─────────────────────────────────

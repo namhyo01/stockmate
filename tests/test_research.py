@@ -85,3 +85,40 @@ def test_plan_draft_extracts_once_and_add_to_plans(tmp_path, monkeypatch):
     item = plans.open_items(session)[0]
     assert (item.source, item.symbol, int(item.price_high), item.due_from) == ("search", "005380", 305000, None)
     assert changes
+
+
+def test_verdict_of():
+    md = "## 한 줄 결론\n**기다릴 자리**예요. 300,000원 지지선 바로 위라 싸 보여요.\n\n## 차트"
+    assert research.verdict_of(md) == ("기다릴 자리", "기다릴 자리예요. 300,000원 지지선 바로 위라 싸 보여요.")
+    assert research.verdict_of("결론 없음") == (None, None)
+
+
+def test_levels_collects_research_idea_report_and_plans(tmp_path, monkeypatch):
+    import datetime as dt
+    import json
+    from decimal import Decimal as D
+
+    from sqlalchemy.orm import Session
+
+    from stockmate import ideas, plans
+    from stockmate.db import make_engine
+    from stockmate.models import Recommendation
+
+    session = Session(make_engine("sqlite://"))
+    monkeypatch.setattr(research, "DIR", tmp_path)
+    (tmp_path / "KRX_005380.json").write_text(json.dumps({
+        "created_at": "2026-10-13T11:12:27", "markdown": "## 한 줄 결론\n**기다릴 자리**예요. 이유.",
+        "idea": {"entry_low": 300000, "entry_high": 305000, "stop": 295000, "target": 326750}}), encoding="utf-8")  # fmt: skip
+    ideas.apply_ideas(session, [{"name": "현대차", "symbol": "005380", "entry_high": 310000}], "chat", now=dt.datetime(2026, 10, 12, 9))
+    session.add(Recommendation(analysis_at=dt.datetime(2026, 10, 10, 9), symbol="005380", opinion="보유", price=D(320000),
+                               watch_low=D(290000), watch_high=D(310000)))  # fmt: skip
+    session.add(Recommendation(analysis_at=dt.datetime(2026, 9, 1), symbol="000660", opinion="보유", price=D(1)))
+    plans.apply_actions(session, {"add": [{"side": "buy", "name": "현대차", "symbol": "005380", "account": "토스",
+                                           "quantity": 1, "price_high": 305000}]}, "search")  # fmt: skip
+    lv = research.levels(session, Market.KRX, "005380", now=dt.datetime(2026, 10, 13, 12))
+    assert [o["source"] for o in lv["opinions"]] == ["research", "idea", "report"]  # 최신순
+    assert lv["opinions"][0]["verdict"] == "기다릴 자리" and lv["opinions"][0]["stop"] == 295000
+    assert lv["opinions"][2]["watch_low"] == 290000
+    assert [(p["side"], p["price_high"]) for p in lv["plans"]] == [("buy", 305000)]
+    # 2주가 지난 리포트 의견은 빼고, 다른 종목 것은 섞이지 않는다
+    assert [o["source"] for o in research.levels(session, Market.KRX, "005380", now=dt.datetime(2026, 11, 30))["opinions"]] == ["research", "idea"]

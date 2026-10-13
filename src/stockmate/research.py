@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -275,3 +276,69 @@ def add_to_plans(market: Market, symbol: str, name: str, items: list[dict[str, A
         if not result.added:
             raise LookupError("담을 계획이 없어요. 방향(사기·팔기)을 확인해 주세요.")
         return result.summary
+
+
+# ── 차트에 그릴 AI 가격선과 의견 ─────────────────────
+
+_VERDICTS = ("지금 사기 좋은 자리", "기다릴 자리", "피할 자리", "더 살 자리", "줄일 자리", "보유")
+_REPORT_DAYS = 14  # 분석 리포트의 관심 가격대는 2주 안의 것만 보여준다
+
+
+def verdict_of(markdown: str) -> tuple[str | None, str | None]:
+    """종목 분석의 '한 줄 결론'에서 판단(기다릴 자리 등)과 첫 문장을 뽑는다."""
+    m = re.search(r"##\s*한 줄 결론\s*\n+(.+)", markdown)
+    if not m:
+        return None, None
+    line = m.group(1).replace("**", "").strip()
+    verdict = next((v for v in _VERDICTS if v in line), None)
+    return verdict, line if len(line) <= 220 else line[:219] + "…"
+
+
+def _f(value: Any) -> float | None:
+    return None if value in (None, "") else float(value)
+
+
+def levels(session, market: Market, symbol: str, now: dt.datetime | None = None) -> dict[str, Any]:
+    """이 종목에 대해 AI가 낸 가격: 검색 탭 분석, 추천 카드, 최근 분석 리포트의 관심 가격대, 열린 매매 계획. 최신순."""
+    from sqlalchemy import select
+
+    from stockmate.models import Recommendation
+
+    now = now or dt.datetime.now()
+    opinions: list[dict[str, Any]] = []
+    record = saved(market, symbol)
+    if record is not None:
+        verdict, line = verdict_of(record.get("markdown", ""))
+        card = record.get("idea") or {}
+        opinions.append({
+            "source": "research", "label": "검색 탭 AI 분석", "at": record.get("created_at"), "verdict": verdict, "summary": line,
+            "entry_low": _f(card.get("entry_low")), "entry_high": _f(card.get("entry_high")),
+            "stop": _f(card.get("stop")), "target": _f(card.get("target")), "horizon": card.get("horizon"),
+        })  # fmt: skip
+    for idea in ideas.active_ideas(session):
+        if idea.symbol != symbol:
+            continue
+        if idea.source == "search" and record is not None:  # 검색 탭 분석을 담은 카드면 분석과 같은 내용이라 한 번만
+            opinions[0]["label"] = "검색 탭 AI 분석 (추천 탭에 담음)"
+            break
+        opinions.append({
+            "source": "idea", "label": "추천 탭 카드", "at": idea.created_at.isoformat(timespec="seconds"), "verdict": None,
+            "summary": idea.summary, "entry_low": _f(idea.entry_low), "entry_high": _f(idea.entry_high),
+            "stop": _f(idea.stop), "target": _f(idea.target), "horizon": idea.horizon,
+        })  # fmt: skip
+        break
+    rec = session.scalars(
+        select(Recommendation).where(Recommendation.symbol == symbol).order_by(Recommendation.analysis_at.desc()).limit(1)
+    ).first()
+    if rec is not None and now - rec.analysis_at <= dt.timedelta(days=_REPORT_DAYS):
+        opinions.append({
+            "source": "report", "label": "분석 리포트", "at": rec.analysis_at.isoformat(timespec="seconds"),
+            "verdict": rec.opinion, "summary": rec.reason, "entry_low": None, "entry_high": None, "stop": None, "target": None,
+            "watch_low": _f(rec.watch_low), "watch_high": _f(rec.watch_high), "horizon": None,
+        })  # fmt: skip
+    opinions.sort(key=lambda o: o["at"] or "", reverse=True)
+    open_plans = [
+        {k: d[k] for k in ("id", "side", "account", "quantity", "amount_krw", "price_low", "price_high", "timing", "due_from", "due_to")}
+        for d in (plans.item_dict(i) for i in plans.open_items(session) if i.symbol == symbol)
+    ]
+    return {"opinions": opinions, "plans": open_plans}

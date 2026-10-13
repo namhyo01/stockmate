@@ -53,3 +53,35 @@ def test_add_to_ideas_uses_saved_card_or_extracts(tmp_path, monkeypatch):
     assert (idea.name, idea.symbol, idea.horizon) == ("엔비디아", "NVDA", "long")
     assert json.loads((tmp_path / "US_NVDA.json").read_text(encoding="utf-8"))["idea"]["summary"] == "요약"
     assert len(ideas.active_ideas(session)) == 2
+
+
+def test_plan_draft_extracts_once_and_add_to_plans(tmp_path, monkeypatch):
+    import contextlib
+    import json
+
+    from sqlalchemy.orm import Session
+
+    from stockmate import analysis, plans
+    from stockmate.db import make_engine
+
+    session = Session(make_engine("sqlite://"))
+    monkeypatch.setattr(research, "session_scope", lambda: contextlib.nullcontext(session))
+    monkeypatch.setattr(research, "DIR", tmp_path)
+    (tmp_path / "KRX_005380.json").write_text(json.dumps({"name": "현대차", "markdown": "글"}), encoding="utf-8")
+    calls = []
+
+    def fake_extract(md, name, symbol):
+        calls.append(name)
+        return [{"side": "buy", "name": "x", "account": "토스", "quantity": 1, "price_high": 305000}, {"side": "hold"}]
+
+    monkeypatch.setattr(analysis, "extract_plan", fake_extract)
+    draft = research.plan_draft(Market.KRX, "005380")
+    assert [i["name"] for i in draft["items"]] == ["현대차"] and draft["open"] == []
+    research.plan_draft(Market.KRX, "005380")
+    assert calls == ["현대차"]  # 한 번 뽑은 초안은 저장해 두고 다시 묻지 않는다
+
+    changes = research.add_to_plans(Market.KRX, "005380", "현대차",
+                                    [{"side": "buy", "account": "토스", "quantity": "1", "price_high": "305000", "due_from": ""}])
+    item = plans.open_items(session)[0]
+    assert (item.source, item.symbol, int(item.price_high), item.due_from) == ("search", "005380", 305000, None)
+    assert changes

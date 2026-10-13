@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from stockmate import analysis, discovery, history, ideas, memory, patterns, technical
+from stockmate import analysis, discovery, history, ideas, memory, patterns, plans, technical
 from stockmate.config import settings
 from stockmate.db import session_scope
 from stockmate.models import Market
@@ -127,6 +127,13 @@ _PROMPT = """당신은 한국 개인 투자자의 투자 비서입니다. 오늘
 마지막 줄에는 다음 문장을 그대로 쓰세요.
 > 참고용 분석이며 투자 판단과 책임은 본인에게 있습니다.
 
+그 다음, "산다면"(또는 줄일 때)의 구체적인 매매를 actions 블록(JSON)으로 붙이세요. 바로 계획이 되지 않고, 사용자가 '계획 탭에 담기'에서 확인하고 고친 뒤 담는 초안입니다.
+나눠 사라고 했으면 회차마다 따로 add에 넣으세요 (최대 3건). 매매가 없으면 add를 빈 배열로 두세요. done, cancel은 빈 배열.
+{actions_guide}
+```actions
+{{"add": [{{"side": "buy", "name": "{name}", "symbol": "{symbol}", "account": "토스", "quantity": 1, "amount_krw": null, "price_low": null, "price_high": null, "timing": "조건", "reason": "한 줄 근거", "due_from": null, "due_to": null}}], "done": [], "cancel": []}}
+```
+
 그 다음 맨 끝에 이 종목 하나의 추천 카드를 ideas 블록(JSON 배열, 항목 1개)으로 붙이세요. 사용자가 '추천 탭에 담기'를 누르면 그대로 담깁니다.
 사지 않는 게 낫다고 판단했어도 붙이되, summary에 그렇게 쓰세요. patterns에는 위 "지금 걸린 발굴 패턴"의 키를 쓰세요.
 {ideas_guide}
@@ -199,17 +206,19 @@ def analyze(snapshot: dict[str, Any], market: Market, symbol: str, name: str) ->
         chart=payload["text"] if payload and payload.get("text") else "(일봉을 가져오지 못했어요)",
         patterns=_patterns_text(hits),
         ideas_guide=ideas.IDEAS_GUIDE,
+        actions_guide=plans.ACTIONS_GUIDE,
         context=context,
         snapshot=json.dumps(snapshot, ensure_ascii=False, indent=1),
     )
     raw, cards = ideas.split_ideas_block(analysis.run_claude(prompt))
+    raw, actions = plans.split_actions_block(raw)
     markdown = memory.parse_report(raw).markdown  # 혹시 붙은 json 블록은 떼어 낸다
     created = dt.datetime.now().replace(microsecond=0)
     card = next((c for c in cards or [] if isinstance(c, dict)), None)
     if card is not None:
         card.update(name=name, symbol=symbol, patterns=card.get("patterns") or [h["key"] for h in hits])
     record = {"created_at": created.isoformat(), "market": market.value, "symbol": symbol, "name": name,
-              "markdown": markdown, "idea": card}  # fmt: skip
+              "markdown": markdown, "idea": card, "plan": _clean_plan((actions or {}).get("add"), name, symbol)}  # fmt: skip
     DIR.mkdir(parents=True, exist_ok=True)
     _path(market, symbol).write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
     memory.save_conversation(f"[검색 탭] {name}({symbol}) 종목 분석", markdown)
@@ -235,3 +244,34 @@ def add_to_ideas(market: Market, symbol: str) -> ideas.Idea:
         if not added:
             raise LookupError("추천 카드를 만들지 못했어요.")
         return added[0]
+
+
+def _clean_plan(items: list[Any] | None, name: str, symbol: str) -> list[dict[str, Any]] | None:
+    """초안 회차를 이 종목으로 맞춘다 (None이면 아직 초안을 만든 적이 없다는 뜻)."""
+    if items is None:
+        return None
+    return [{**i, "name": name, "symbol": symbol} for i in items if isinstance(i, dict) and i.get("side") in ("buy", "sell")][:3]
+
+
+def plan_draft(market: Market, symbol: str) -> dict[str, Any]:
+    """계획 탭에 담기 창: 분석에서 뽑은 매매 계획 초안과, 이 종목에 이미 열려 있는 계획(같은 방향이면 새 것으로 바뀐다)."""
+    record = saved(market, symbol)
+    if record is None:
+        raise LookupError("먼저 AI 분석을 해 주세요.")
+    if record.get("plan") is None:
+        record["plan"] = _clean_plan(analysis.extract_plan(record["markdown"], record["name"], symbol), record["name"], symbol)
+        _path(market, symbol).write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    with session_scope() as session:
+        open_items = [plans.item_dict(i) for i in plans.open_items(session) if i.symbol == symbol]
+    return {"name": record["name"], "items": record["plan"], "open": open_items, "currency": market.currency}
+
+
+def add_to_plans(market: Market, symbol: str, name: str, items: list[dict[str, Any]]) -> list[str]:
+    """사용자가 확인한 회차들을 계획 탭에 담는다. 바뀐 내용 요약을 돌려준다."""
+    items = [{**i, "name": name, "symbol": symbol, "due_from": i.get("due_from") or None, "due_to": i.get("due_to") or None}
+             for i in items]  # fmt: skip
+    with session_scope() as session:
+        result = plans.apply_actions(session, {"add": items}, "search")
+        if not result.added:
+            raise LookupError("담을 계획이 없어요. 방향(사기·팔기)을 확인해 주세요.")
+        return result.summary

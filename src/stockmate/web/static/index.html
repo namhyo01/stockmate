@@ -383,6 +383,21 @@ body[data-view="claude"] footer { display: none; }
 .ifoot .quiet { font-size: 12.5px; margin-right: auto; }
 a.btn { text-decoration: none; }
 
+/* 계획 탭에 담기 창 */
+.prow { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+.prow.off { opacity: .5; }
+.prow-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-weight: 700; font-size: 14px; }
+.prow-h label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.prow-h .rm { margin-left: auto; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 13px; cursor: pointer; }
+.pgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+.pgrid label { display: grid; gap: 3px; font-size: 12px; color: var(--ink-3); font-weight: 600; min-width: 0; }
+.pgrid .wide { grid-column: span 2; }
+.pgrid .full { grid-column: 1 / -1; }
+.pgrid input, .pgrid select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); }
+.pgrid input:focus, .pgrid select:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.pwarn { font-size: 13px; padding: 9px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); margin-bottom: 12px; }
+@media (max-width: 560px) { .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* 검색 탭 */
 .sbox { position: relative; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; margin-top: 6px; }
 .sbox:focus-within { border-color: var(--focus); }
@@ -411,8 +426,7 @@ a.btn { text-decoration: none; }
 .sres-ai { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .sres-ai-h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
 .sres-ai-h h3 { margin: 0; font-size: 16px; }
-.sres-ai-h #search-idea { margin-left: auto; }
-.sres-ai-h #search-idea[hidden] + .btn { margin-left: auto; }
+.sres-ai-h #search-ai-at { margin-right: auto; }
 .sres-ai .md { max-width: 90ch; }
 .disc-state { margin-top: 4px !important; font-size: 13px !important; }
 .disc-box { background: var(--surface); border-radius: 14px; padding: 14px 20px; margin: 0 0 14px; }
@@ -705,7 +719,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .ref { stroke-width: 1; stroke-dasharray: 3 3; }
 .ref.avg { stroke: var(--ink-2); }
 .cplot .tag rect { rx: 4px; }
-.cplot .tag text { font-size: 11px; font-weight: 700; fill: #fff; font-variant-numeric: tabular-nums; }
+.cplot .tag text { font-size: 11px; font-weight: 700; fill: var(--surface); stroke: none; font-variant-numeric: tabular-nums; }
 .cplot .tag.avg rect { fill: var(--ink-2); } .tag.avg text { fill: var(--surface); }
 .cplot .tag.cur rect { fill: var(--ink); } .tag.cur text { fill: var(--surface); }
 .cplot .cross { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 2; }
@@ -857,6 +871,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <div class="sres-pat" id="search-pat"></div>
       <section class="sres-ai">
         <div class="sres-ai-h"><h3>AI 종목 분석</h3><span class="quiet" id="search-ai-at"></span>
+          <button class="btn" type="button" id="search-plan" hidden title="분석에서 뽑은 매매안을 확인하고 고친 뒤 계획 탭에 담아요. 실제 매매는 하지 않아요."><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg><span class="t">계획 탭에 담기</span></button>
           <button class="btn" type="button" id="search-idea" hidden title="이 분석을 추천 탭에 카드로 담아요. 같은 종목의 예전 추천은 새 것으로 바뀌어요."><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="t">추천 탭에 담기</span></button>
           <button class="btn ink" type="button" id="search-analyze" title="AI가 뉴스·실적·밸류에이션을 찾아보고 차트와 함께 분석해요. 1~3분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/></svg><span class="t">AI 분석하기</span></button></div>
         <div class="md" id="search-ai"></div>
@@ -924,6 +939,16 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <button class="x" type="button" id="chart-close" aria-label="닫기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <div class="sheet-body" id="chart-body"></div>
+</dialog>
+<dialog class="sheet" id="plansheet" aria-labelledby="plansheet-title">
+  <div class="sheet-head">
+    <strong id="plansheet-title">계획 탭에 담기</strong>
+    <button class="x" type="button" id="plansheet-close" aria-label="닫기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="sheet-body" id="plansheet-body"></div>
+  <div class="sheet-foot"><span class="left">실제 매매는 하지 않아요. 계획 탭에 카드로 남아요.</span>
+    <button class="btn" type="button" id="plansheet-add-row">회차 추가</button>
+    <button class="btn ink" type="button" id="plansheet-save">계획에 담기</button></div>
 </dialog>
 <input type="file" id="shot-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
 
@@ -1642,7 +1667,7 @@ async function sendQuestion() {
 /* ── 매매 계획 ─────────────────────────── */
 const plan = { data: null, busy: false };
 const SIDE = { buy: { label: "매수", color: "var(--up)" }, sell: { label: "매도", color: "var(--down)" } };
-const SOURCE = { chat: "대화", analysis: "분석 리포트", rebuild: "AI 정리" };
+const SOURCE = { chat: "대화", analysis: "분석 리포트", rebuild: "AI 정리", search: "검색 탭" };
 async function loadPlans() {
   if (!plan.data) $("plan-accts").innerHTML = `<div class="plan-empty"><span class="spin"></span> 계획과 지금 시세를 불러오는 중이에요</div>`;
   try { plan.data = await api("/api/plans"); renderPlans(); } catch (e) { toast(`계획을 불러오지 못했어요: ${e.message}`, "error"); }
@@ -2715,6 +2740,7 @@ function renderStockView(meta, v) {
   renderStockAnalysis(v.analysis);
 }
 function renderIdeaButton() {
+  $("search-plan").hidden = !search.hasAnalysis;
   const b = $("search-idea");
   b.hidden = !search.hasAnalysis;
   b.querySelector(".t").textContent = search.inIdeas ? "추천 탭에 있어요 · 다시 담기" : "추천 탭에 담기";
@@ -2756,6 +2782,88 @@ $("search-analyze").addEventListener("click", async () => {
   }
 });
 bindChartRoot($("search-chart")); bindChartPointer($("search-chart"));
+
+/* ── 계획 탭에 담기 (검색 탭 분석 → 확인 → 계획) ─────────── */
+const psheet = { meta: null, rows: [], open: [], currency: "KRW" };
+const PS_ACCOUNTS = ["토스", "한투", "삼성연금"];
+function planRowHtml(r, i) {
+  const v = (x) => x == null ? "" : esc(String(x));
+  const cur = psheet.currency === "USD" ? "달러" : "원";
+  return `<div class="prow${r.on ? "" : " off"}" data-row="${i}">
+    <div class="prow-h"><label><input type="checkbox" data-f="on" ${r.on ? "checked" : ""}> ${i + 1}회차 담기</label>
+      <button type="button" class="rm" data-rm="${i}">지우기</button></div>
+    <div class="pgrid">
+      <label>방향<select data-f="side"><option value="buy" ${r.side === "buy" ? "selected" : ""}>사기</option><option value="sell" ${r.side === "sell" ? "selected" : ""}>팔기</option></select></label>
+      <label>계좌<select data-f="account">${PS_ACCOUNTS.map((a) => `<option ${r.account === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+      <label>수량(주)<input data-f="quantity" inputmode="decimal" value="${v(r.quantity)}" placeholder="예: 1"></label>
+      <label>금액(원)<input data-f="amount_krw" inputmode="numeric" value="${v(r.amount_krw)}" placeholder="수량 대신"></label>
+      <label>가격 하한(${cur})<input data-f="price_low" inputmode="decimal" value="${v(r.price_low)}" placeholder="이 가격 이상이면"></label>
+      <label>가격 상한(${cur})<input data-f="price_high" inputmode="decimal" value="${v(r.price_high)}" placeholder="이 가격 이하면"></label>
+      <label>시작일<input type="date" data-f="due_from" value="${v(r.due_from)}"></label>
+      <label>마감일<input type="date" data-f="due_to" value="${v(r.due_to)}"></label>
+      <label class="full">시기·조건<input data-f="timing" value="${v(r.timing)}" maxlength="200" placeholder="예: 10/22 실적 발표 후, 30만원 지지 확인 뒤"></label>
+      <label class="full">이유<input data-f="reason" value="${v(r.reason)}" maxlength="500"></label>
+    </div></div>`;
+}
+function renderPlanSheet() {
+  const sides = new Set(psheet.rows.filter((r) => r.on).map((r) => r.side));
+  const replaced = psheet.open.filter((o) => sides.has(o.side));
+  $("plansheet-body").innerHTML = (replaced.length
+      ? `<div class="pwarn">이 종목에 열려 있는 ${replaced.map((o) => `#${o.id} ${o.side === "buy" ? "매수" : "매도"} 계획`).join(", ")}은(는) 새로 담는 계획으로 바뀌어요.</div>` : "")
+    + (psheet.rows.length ? psheet.rows.map(planRowHtml).join("")
+      : `<p class="quiet">분석에 구체적인 매매가 없었어요. "회차 추가"로 직접 넣을 수 있어요.</p>`);
+}
+function readPlanRows() {
+  $("plansheet-body").querySelectorAll(".prow").forEach((el) => {
+    const r = psheet.rows[Number(el.dataset.row)];
+    el.querySelectorAll("[data-f]").forEach((f) => { r[f.dataset.f] = f.type === "checkbox" ? f.checked : f.value.trim() || null; });
+  });
+}
+$("search-plan").addEventListener("click", async () => {
+  const meta = search.current; if (!meta) return;
+  const btn = $("search-plan");
+  busy(btn, true, "초안 만드는 중");
+  try {
+    const d = await api(`/api/stock/plan-draft?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`);
+    Object.assign(psheet, { meta, open: d.open || [], currency: d.currency,
+      rows: (d.items || []).map((r) => ({ ...r, account: PS_ACCOUNTS.includes(r.account) ? r.account : "토스", on: true })) });
+    $("plansheet-title").textContent = `${meta.name} 계획 탭에 담기`;
+    renderPlanSheet();
+    $("plansheet").showModal();
+  } catch (e) { toast(`초안을 만들지 못했어요: ${e.message}`, "error"); }
+  finally { busy(btn, false); }
+});
+$("plansheet-close").addEventListener("click", () => $("plansheet").close());
+$("plansheet-body").addEventListener("change", (e) => {
+  if (e.target.dataset.f === "on" || e.target.dataset.f === "side") { readPlanRows(); renderPlanSheet(); }
+});
+$("plansheet-body").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-rm]"); if (!rm) return;
+  readPlanRows(); psheet.rows.splice(Number(rm.dataset.rm), 1); renderPlanSheet();
+});
+$("plansheet-add-row").addEventListener("click", () => {
+  readPlanRows();
+  psheet.rows.push({ side: "buy", account: psheet.rows.at(-1)?.account || "토스", on: true });
+  renderPlanSheet();
+  $("plansheet-body").querySelector(".prow:last-child [data-f=quantity]")?.focus();
+});
+$("plansheet-save").addEventListener("click", async () => {
+  readPlanRows();
+  const num = (x) => x == null ? null : Number(String(x).replace(/[,$원\s]/g, "")) || null;
+  const items = psheet.rows.filter((r) => r.on).map((r) => ({
+    side: r.side, account: r.account, quantity: num(r.quantity), amount_krw: num(r.amount_krw),
+    price_low: num(r.price_low), price_high: num(r.price_high), timing: r.timing, reason: r.reason,
+    due_from: r.due_from, due_to: r.due_to }));
+  if (!items.length) return toast("담을 회차를 하나 이상 골라 주세요", "error");
+  const btn = $("plansheet-save");
+  busy(btn, true, "담는 중");
+  try {
+    const d = await api("/api/stock/plan", { method: "POST", body: JSON.stringify({ market: psheet.meta.market, symbol: psheet.meta.symbol, name: psheet.meta.name, items }) });
+    $("plansheet").close();
+    toast(`계획 탭에 담았어요: ${d.changes.join(", ")}`);
+  } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
+  finally { busy(btn, false); }
+});
 </script>
 </body>
 </html>

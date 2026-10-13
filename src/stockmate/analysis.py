@@ -483,6 +483,28 @@ def extract_idea(markdown: str, name: str, symbol: str) -> dict[str, Any]:
     return _run_claude_json(prompt, _IDEA_SCHEMA)
 
 
+_EXTRACT_PLAN = """오늘은 {today}({weekday})입니다. 아래는 투자 비서 AI가 종목 하나({name}, {symbol})를 분석한 글입니다.
+글의 "산다면"(또는 줄이거나 파는 내용)에 나온 구체적인 매매를 매매 계획 초안으로 옮기세요. 사용자가 확인하고 고친 뒤 계획 탭에 담습니다.
+- 나눠 사라고 했으면 회차마다 따로 add에 넣으세요 (최대 3건). 글에 없는 수량·가격을 지어내지 말고 모르면 null로 두세요.
+- 사지 말라는 결론이어도, 글에 "이 가격이 오면 산다" 같은 조건이 있으면 그 조건으로 한 건 넣으세요. 아무 매매도 없으면 add는 빈 배열.
+- done, cancel은 빈 배열로 두세요.
+{actions_guide}
+
+## 분석 글
+{markdown}
+"""
+
+
+def extract_plan(markdown: str, name: str, symbol: str) -> list[dict[str, Any]]:
+    """종목 분석 글에서 매매 계획 초안(add 목록)을 뽑는다 (초안 없이 저장된 예전 분석용, 도구 없이 30초쯤)."""
+    today = datetime.now()
+    prompt = _EXTRACT_PLAN.format(
+        today=today.strftime("%Y-%m-%d"), weekday="월화수목금토일"[today.weekday()], name=name, symbol=symbol,
+        actions_guide=plans.ACTIONS_GUIDE, markdown=markdown,
+    )  # fmt: skip
+    return _run_claude_json(prompt, _ACTIONS_SCHEMA).get("add") or []
+
+
 def extract_ideas(answer: str, held: list[str]) -> list[dict[str, Any]]:
     """이미 받은 답변에서 추천 종목 카드를 뽑는다 (ideas 블록이 없던 예전 답변용)."""
     prompt = _EXTRACT_IDEAS.format(ideas_guide=ideas.IDEAS_GUIDE, held=", ".join(held) or "(없음)", answer=answer)

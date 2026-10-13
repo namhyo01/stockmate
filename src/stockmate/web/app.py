@@ -335,6 +335,49 @@ def add_stock_idea(body: StockKey) -> dict[str, Any]:
     return {"id": idea.id, "name": idea.name}
 
 
+@app.get("/api/stock/plan-draft")
+def get_plan_draft(market: Market, symbol: str = Query(min_length=1, max_length=20)) -> dict[str, Any]:
+    """계획 탭에 담기 창에 채울 초안 (예전 분석이면 초안을 뽑느라 30초쯤 걸린다)."""
+    try:
+        return research.plan_draft(market, portfolio.normalize_symbol(symbol))
+    except LookupError as e:
+        raise HTTPException(400, str(e)) from None
+    except analysis.AnalysisError as e:
+        raise HTTPException(502, str(e)) from None
+
+
+class PlanDraftItem(BaseModel):
+    side: str = Field(pattern="^(buy|sell)$")
+    account: str | None = Field(default=None, max_length=20)
+    quantity: Decimal | None = Field(default=None, gt=0)
+    amount_krw: Decimal | None = Field(default=None, gt=0)
+    price_low: Decimal | None = Field(default=None, gt=0)
+    price_high: Decimal | None = Field(default=None, gt=0)
+    timing: str | None = Field(default=None, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+    due_from: str | None = Field(default=None, max_length=10)
+    due_to: str | None = Field(default=None, max_length=10)
+
+
+class StockPlan(BaseModel):
+    market: Market
+    symbol: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=100)
+    items: list[PlanDraftItem] = Field(min_length=1, max_length=5)
+
+
+@app.post("/api/stock/plan")
+def add_stock_plan(body: StockPlan) -> dict[str, Any]:
+    """사용자가 확인한 매매 계획을 계획 탭에 담는다 (실제 매매는 하지 않는다)."""
+    items = [{k: (str(v) if isinstance(v, Decimal) else v) for k, v in i.model_dump().items()} for i in body.items]
+    try:
+        changes = research.add_to_plans(body.market, portfolio.normalize_symbol(body.symbol), body.name, items)
+    except LookupError as e:
+        raise HTTPException(400, str(e)) from None
+    snapshots.refresh_in_background()  # 포트폴리오 탭의 계획 표시도 맞춘다
+    return {"changes": changes}
+
+
 # ── 시장 지표 띠 ──────────────────────────────────
 
 

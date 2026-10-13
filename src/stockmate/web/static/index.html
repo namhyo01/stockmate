@@ -131,6 +131,10 @@ button { cursor: pointer; }
 .btn:disabled { opacity: .6; cursor: progress; }
 #theme { padding: 8px 10px; }  /* 아이콘만: 밝을 때 달(켜기), 어두울 때 해(끄기) */
 #theme .i-sun { display: none; }
+#theme svg { animation: theme-icon .5s cubic-bezier(.2, .8, .2, 1); }  /* 아이콘이 바뀔 때 돌면서 나타난다 */
+@keyframes theme-icon { from { transform: rotate(-120deg) scale(.3); opacity: 0; } }
+/* 테마 전환: 버튼 자리에서 원이 퍼지며 새 화면이 덮는다 (View Transitions). 기본 겹침 효과는 끈다 */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 #theme[aria-pressed="true"] .i-sun { display: block; }
 #theme[aria-pressed="true"] .i-moon { display: none; }
 .spin { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }
@@ -1560,6 +1564,18 @@ function syncThemeButton() {
   $("theme").title = on ? "다크 모드 끄기 (밝은 화면)" : "다크 모드 켜기 (어두운 화면)";
 }
 $("theme").addEventListener("click", () => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!document.startViewTransition || reduce) return toggleTheme();  // 지원하지 않거나 움직임 줄이기면 바로 바꾼다
+  const r = $("theme").getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const t = document.startViewTransition(toggleTheme);
+  t.ready.then(() => document.documentElement.animate(
+    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+    { duration: 600, easing: "cubic-bezier(.4, 0, .2, 1)", pseudoElement: "::view-transition-new(root)" },
+  )).catch(() => {});
+});
+function toggleTheme() {
   const next = dark() ? "light" : "dark";
   const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   if (next === system) {
@@ -1571,7 +1587,7 @@ $("theme").addEventListener("click", () => {
   }
   syncThemeButton();
   if (state.data) renderMap(state.data);  // 주식 지도 색은 스크립트가 고른다 (나머지는 CSS가 바로 바뀐다)
-});
+}
 syncThemeButton();
 
 /* ── Claude ───────────────────────────── */

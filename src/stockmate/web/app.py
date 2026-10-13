@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
-from stockmate import analysis, discovery, ideas, importers, memory, plans, portfolio, screenshots, sync, technical
+from stockmate import analysis, discovery, ideas, importers, markets, memory, plans, portfolio, screenshots, sync, technical
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
 from stockmate.config import settings
@@ -276,6 +276,15 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
         if ideas.set_status(session, idea_id, body.status) is None:
             raise HTTPException(404, "추천을 찾을 수 없어요.")
     return get_ideas()
+
+
+# ── 시장 지표 띠 ──────────────────────────────────
+
+
+@app.get("/api/markets")
+def get_markets() -> dict[str, Any]:
+    """코스피·코스닥·미국 지수·환율·금리·비트코인 (20초 캐시)."""
+    return {"items": markets.board.get()}
 
 
 # ── 차트 ───────────────────────────────────────────

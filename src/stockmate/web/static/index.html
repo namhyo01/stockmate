@@ -71,6 +71,24 @@ button { cursor: pointer; }
 .live { font-size: 13px; color: var(--ink-3); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--up); flex: none; opacity: .9; }
 .pulse.on { animation: breathe 2.4s ease-in-out infinite; }
+/* 시장 지표 띠: 토스처럼 옆으로 흐른다. 마우스를 올리거나 포커스하면 멈춘다 */
+.top { flex-wrap: wrap; }
+.ticker { flex: 1 0 100%; order: 99; overflow: hidden; margin-top: 2px; padding: 7px 0; border-top: 1px solid var(--line);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
+.ticker:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.ticker-track .seq { display: inline-flex; }
+.ticker-track { display: flex; width: max-content; animation: ticker var(--dur, 60s) linear infinite; }
+.ticker:hover .ticker-track, .ticker:focus-within .ticker-track { animation-play-state: paused; }
+@keyframes ticker { to { transform: translateX(-50%); } }
+.tk { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 22px 0 0; margin-right: 22px; font-size: 13px; white-space: nowrap; border-right: 1px solid var(--line); }
+.tk b { font-weight: 650; color: var(--ink-2); }
+.tk .v { font-weight: 750; color: var(--ink); font-variant-numeric: tabular-nums; padding: 0 2px; }
+.tk .c { font-weight: 650; font-variant-numeric: tabular-nums; }
+.tk small { font-size: 11px; color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) {
+  .ticker { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+  .ticker-track .dup { display: none; }
+}
 @keyframes breathe { 50% { opacity: .25; } }
 .btn {
   display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--surface);
@@ -671,6 +689,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <div class="live" id="live"><span class="pulse" id="pulse"></span><span id="live-text">불러오는 중</span></div>
     <button class="btn" id="refresh" title="증권사 API로 잔고를 동기화하고 시세와 환율을 새로 가져와요"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="t">새로고침</span></button>
     <button class="btn ink" id="analyze" title="AI가 뉴스를 찾아보며 전체 포트폴리오를 분석해요. 몇 분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/><circle cx="19" cy="19" r="2"/></svg><span class="t">AI 분석</span></button>
+    <div class="ticker" id="ticker" role="region" aria-label="시장 지표" tabindex="0" hidden><div class="ticker-track" id="ticker-track"></div></div>
   </div>
 
   <main class="view" id="view-portfolio">
@@ -1516,7 +1535,7 @@ async function sendQuestion() {
     renderChat();
     // 긴 답은 처음부터 읽도록 방금 한 질문이 화면 위쪽에 오게 한다
     const turn = $("chat-log").querySelector(`.turn[data-i="${chat.items.length - 1}"]`);
-    if (turn && state.view === "claude") scrollTo({ top: turn.getBoundingClientRect().top + scrollY - 90, behavior: "smooth" });
+    if (turn && state.view === "claude") scrollTo({ top: turn.getBoundingClientRect().top + scrollY - document.querySelector(".top").offsetHeight - 10, behavior: "smooth" });
     if (state.view !== "claude") toast("AI가 답했어요. AI 탭에서 볼 수 있어요");
     loadMemory();
   } catch (err) {
@@ -2382,6 +2401,58 @@ $("chart-body").addEventListener("keydown", (e) => {
   moveCursor(moves[e.key]);
 });
 new ResizeObserver(() => { if ($("chart").open && chart.data) drawChart(); }).observe($("chart-body"));
+
+/* ── 시장 지표 띠 ─────────────────────── */
+const ticker = { keys: "", last: {} };
+function tickerValue(q) {
+  const d = q.key === "us10y" ? 3 : q.key === "btc" ? 0 : 2;
+  const n = q.value.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return q.unit === "$" ? `$${n}` : q.unit === "%" ? `${n}%` : n;
+}
+function tickerChange(q) {
+  if (q.change == null) return "";
+  const d = q.key === "us10y" ? 3 : q.key === "btc" ? 0 : 2;
+  const arrow = q.change > 0 ? "▲" : q.change < 0 ? "▼" : "";
+  const abs = Math.abs(q.change).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return `${arrow}${abs}${q.change_pct == null ? "" : ` (${pct(q.change_pct)})`}`;
+}
+const TICKER_STATUS = { CLOSE: "마감", PREOPEN: "개장 전", PRE_OPEN: "개장 전" };
+function renderTicker(items) {
+  const track = $("ticker-track");
+  const keys = items.map((q) => q.key).join(",");
+  if (keys !== ticker.keys) {  // 지표 구성이 바뀔 때만 새로 만든다 (값만 바뀌면 흐르던 위치를 유지한다)
+    const one = items.map((q) => `<span class="tk" data-k="${q.key}"><b>${esc(q.label)}</b><span class="v"></span><span class="c"></span><small></small></span>`).join("");
+    track.innerHTML = `<span class="seq">${one}</span><span class="seq dup" aria-hidden="true">${one}</span>`;
+    ticker.keys = keys;
+    requestAnimationFrame(() => {  // 초당 약 45px로 흐르게
+      const w = track.querySelector(".seq").scrollWidth;
+      track.style.setProperty("--dur", `${Math.max(20, w / 45)}s`);
+    });
+  }
+  for (const q of items) {
+    const prev = ticker.last[q.key];
+    track.querySelectorAll(`[data-k="${q.key}"]`).forEach((el) => {
+      const v = el.querySelector(".v"), c = el.querySelector(".c");
+      v.textContent = tickerValue(q);
+      c.textContent = tickerChange(q);
+      c.className = `c ${tone(q.change)}`;
+      el.querySelector("small").textContent = TICKER_STATUS[q.status] || "";
+      if (prev != null && prev !== q.value) {
+        v.classList.remove("flash-up", "flash-down"); void v.offsetWidth;
+        v.classList.add(q.value > prev ? "flash-up" : "flash-down");
+      }
+    });
+    ticker.last[q.key] = q.value;
+  }
+  $("ticker").hidden = !items.length;
+}
+async function loadTicker() {
+  if (document.hidden) return;
+  try { renderTicker((await api("/api/markets")).items); } catch { /* 띠는 없어도 된다 */ }
+}
+loadTicker();
+setInterval(loadTicker, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadTicker(); });
 </script>
 </body>
 </html>

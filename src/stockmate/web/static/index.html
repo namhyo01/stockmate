@@ -1865,6 +1865,7 @@ function ideaCard(i) {
       `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a></li>`).join("")}</ul></details>` : ""}
     <div class="ifoot"><span class="quiet">${{ chat: "AI 대화", analysis: "분석 리포트", extract: "AI 대화", weekly: "매주 발굴", search: "검색 탭" }[i.source] || ""}에서</span>
       ${i.symbol && i.market ? `<button class="btn sm" type="button" ${chartAttrs(i.market, i.symbol, i.name)}>차트</button>` : ""}
+      ${i.symbol ? `<button class="btn sm" type="button" data-idea-plan="${i.id}" title="이 추천을 매매 계획으로 담아요. 수량과 시기를 확인하고 고칠 수 있어요.">계획에 담기</button>` : ""}
       ${i.planned ? `<a class="btn sm" href="#plans">계획 보기</a>` : ""}
       <button class="btn sm" type="button" data-idea="${i.id}" data-status="dismissed">관심 없음</button></div>
   </article>`;
@@ -2819,19 +2820,29 @@ function readPlanRows() {
     el.querySelectorAll("[data-f]").forEach((f) => { r[f.dataset.f] = f.type === "checkbox" ? f.checked : f.value.trim() || null; });
   });
 }
-$("search-plan").addEventListener("click", async () => {
-  const meta = search.current; if (!meta) return;
-  const btn = $("search-plan");
-  busy(btn, true, "초안 만드는 중");
+// 초안을 받아 창을 연다. 검색 탭(종목 분석)과 추천 탭(추천 카드)이 같이 쓴다.
+async function openPlanSheet(btn, meta, url, label = "초안 만드는 중") {
+  busy(btn, true, label);
   try {
-    const d = await api(`/api/stock/plan-draft?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`);
+    const d = await api(url);
     Object.assign(psheet, { meta, open: d.open || [], currency: d.currency,
       rows: (d.items || []).map((r) => ({ ...r, account: PS_ACCOUNTS.includes(r.account) ? r.account : "토스", on: true })) });
     $("plansheet-title").textContent = `${meta.name} 계획 탭에 담기`;
     renderPlanSheet();
     $("plansheet").showModal();
+    $("plansheet-body").querySelector("[data-f=quantity]")?.focus();
   } catch (e) { toast(`초안을 만들지 못했어요: ${e.message}`, "error"); }
   finally { busy(btn, false); }
+}
+$("search-plan").addEventListener("click", () => {
+  const meta = search.current; if (!meta) return;
+  openPlanSheet($("search-plan"), meta, `/api/stock/plan-draft?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`);
+});
+$("view-ideas").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-idea-plan]"); if (!b) return;
+  const i = [...(idea.data?.active || []), ...(idea.data?.dismissed || [])].find((x) => String(x.id) === b.dataset.ideaPlan);
+  if (!i?.symbol || !i.market) return;
+  openPlanSheet(b, { market: i.market, symbol: i.symbol, name: i.name, fromIdea: true }, `/api/ideas/${i.id}/plan-draft`, "여는 중");
 });
 $("plansheet-close").addEventListener("click", () => $("plansheet").close());
 $("plansheet-body").addEventListener("change", (e) => {
@@ -2861,6 +2872,7 @@ $("plansheet-save").addEventListener("click", async () => {
     const d = await api("/api/stock/plan", { method: "POST", body: JSON.stringify({ market: psheet.meta.market, symbol: psheet.meta.symbol, name: psheet.meta.name, items }) });
     $("plansheet").close();
     toast(`계획 탭에 담았어요: ${d.changes.join(", ")}`);
+    if (psheet.meta.fromIdea && state.view === "ideas") loadIdeas();  // 카드에 '계획 보기'가 생긴다
   } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
   finally { busy(btn, false); }
 });

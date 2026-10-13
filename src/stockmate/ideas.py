@@ -217,3 +217,30 @@ def idea_rows(session: Session, provider: PriceProvider) -> dict[str, Any]:
     result = {"active": [row(i) for i in shown], "dismissed": [row(i) for i in dismissed]}
     session.flush()
     return result
+
+
+def plan_draft(session: Session, idea: Idea) -> dict[str, Any]:
+    """추천 카드 → 계획 탭에 담기 창 초안 (AI 없이 카드 값으로). 이 종목의 열린 계획도 함께 (같은 방향이면 바뀐다)."""
+    from stockmate import plans
+
+    market = idea.market or (detect_market(idea.symbol) if idea.symbol else None)
+    conditions = [f"철회 기준 {_plain(idea.stop)}" if idea.stop else "", f"목표가 {_plain(idea.target)}" if idea.target else ""]
+    item = {
+        "side": "buy",
+        "account": idea.account,
+        "quantity": None,
+        "amount_krw": None,
+        "price_low": _num(idea.entry_low),
+        "price_high": _num(idea.entry_high),
+        "timing": " · ".join(c for c in ["추천 가격대에 들어오면", *conditions] if c),
+        "reason": idea.summary,
+        "due_from": None,
+        "due_to": None,
+    }
+    open_items = [plans.item_dict(i) for i in plans.open_items(session) if idea.symbol and i.symbol == idea.symbol]
+    return {"name": idea.name, "market": market.value if market else None, "symbol": idea.symbol,
+            "currency": market.currency if market else "KRW", "items": [item], "open": open_items}  # fmt: skip
+
+
+def _plain(value: Decimal) -> str:
+    return f"{value:,.2f}".rstrip("0").rstrip(".") if value % 1 else f"{value:,.0f}"

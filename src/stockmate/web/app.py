@@ -27,7 +27,7 @@ from stockmate.brokers.toss import TossError
 from stockmate.config import settings
 from stockmate.db import session_scope
 from stockmate.market_data import CachedPrices, MarketDataError
-from stockmate.models import Account, Instrument, Market
+from stockmate.models import Account, Idea, Instrument, Market
 from stockmate.portfolio import PortfolioError
 from stockmate.report import build_snapshot
 from stockmate.web.snapshots import SnapshotStore
@@ -445,6 +445,16 @@ def start_discovery() -> dict[str, Any]:
 def get_scorecard() -> dict[str, Any]:
     with session_scope() as session:
         return discovery.scorecard(session)
+
+
+@app.get("/api/ideas/{idea_id:int}/plan-draft")
+def get_idea_plan_draft(idea_id: int) -> dict[str, Any]:
+    """추천 카드의 '계획에 담기' 창 초안 (카드의 가격대·계좌·요약으로 채운다)."""
+    with session_scope() as session:
+        idea = session.get(Idea, idea_id)
+        if idea is None or not idea.symbol:
+            raise HTTPException(404, "종목코드가 있는 추천만 계획에 담을 수 있어요.")
+        return ideas.plan_draft(session, idea)
 
 
 class Profile(BaseModel):

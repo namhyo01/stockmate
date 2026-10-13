@@ -69,3 +69,14 @@ def test_dismiss_and_restore(session):
     assert ideas.set_status(session, idea.id, "bogus") is None
     ideas.set_status(session, idea.id, "active")
     assert ideas.context_text(session).startswith("- ") and "BRK-B" in ideas.context_text(session)
+
+
+def test_plan_draft_from_idea(session):
+    idea = ideas.apply_ideas(session, [{**BRK, "entry_low": 480, "entry_high": "505", "stop": 455, "target": "560.5"}], "weekly")[0]
+    plans.apply_actions(session, {"add": [{"side": "buy", "name": "버크셔", "symbol": "BRK-B", "account": "토스", "quantity": 1}]}, "chat")
+    d = ideas.plan_draft(session, idea)
+    item = d["items"][0]
+    assert (d["market"], d["symbol"], d["currency"]) == ("US", "BRK-B", "USD")
+    assert (item["side"], item["account"], item["price_low"], item["price_high"]) == ("buy", "토스", 480.0, 505.0)
+    assert item["timing"] == "추천 가격대에 들어오면 · 철회 기준 455 · 목표가 560.5"
+    assert [o["side"] for o in d["open"]] == ["buy"]  # 열린 매수 계획은 바뀐다고 알려준다

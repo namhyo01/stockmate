@@ -496,3 +496,14 @@ def index_payload(key: str, live: dict[str, Any] | None = None, source: DailyCan
         "text": describe(name, ticker, Market.US, summary, digits=digits, unit=unit).replace(", US)", ")", 1) if summary else None,
         **chart_series(frame, Market.US, digits),
     }
+
+
+def index_sparks(days: int = 22, source: DailyCandles | None = None) -> dict[str, list[float]]:
+    """시장 지표별 최근 한 달(약 22거래일) 종가. 지표 전체 목록의 작은 선 그래프용."""
+    keys = {key: (Market.US, ticker) for key, (ticker, _, _) in INDEX_CHARTS.items()}
+    frames = (source or candles).get(keys.values())
+    return {
+        key: [round(float(v), 4) for v in frames[k]["Close"].iloc[-days:]]
+        for key, k in keys.items()
+        if k in frames and not frames[k].empty
+    }

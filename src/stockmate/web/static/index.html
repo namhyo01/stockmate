@@ -74,7 +74,30 @@ button { cursor: pointer; }
 /* 시장 지표 띠: 토스처럼 옆으로 흐른다. 마우스를 올렸을 때와 키보드로 옮겨 왔을 때만 멈춘다
    (클릭·탭 뒤에 남는 포커스나 터치 기기의 hover로 멈춘 채 남지 않게) */
 .top { flex-wrap: wrap; }
-.ticker { flex: 1 0 100%; order: 99; overflow: hidden; margin-top: 2px; padding: 7px 0; border-top: 1px solid var(--line);
+.tbar { flex: 1 0 100%; order: 99; min-width: 0; display: flex; align-items: center; gap: 10px; margin-top: 2px; border-top: 1px solid var(--line); position: relative; }
+.tall { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; background: var(--sunken); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 650; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.tall:hover { color: var(--ink); }
+.tall svg { transition: transform .15s; }
+.tall[aria-expanded="true"] { background: var(--ink); color: var(--paper); }
+.tall[aria-expanded="true"] svg { transform: rotate(180deg); }
+.tpop { position: absolute; top: calc(100% + 6px); right: 0; width: min(640px, 100%); background: var(--surface); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.18); padding: 14px; z-index: 30; }
+.tpop-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 4px 8px; font-size: 14px; }
+.tpop-h .quiet { font-size: 12px; }
+.tgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
+.trow { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; align-items: center; gap: 10px; padding: 8px 8px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.trow:hover { background: var(--sunken); }
+.trow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.trow .n { min-width: 0; }
+.trow .n b { display: block; font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .n small { font-size: 11.5px; color: var(--ink-3); }
+.trow svg { display: block; }
+.trow svg polyline { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.trow svg .up { stroke: var(--up); } .trow svg .down { stroke: var(--down); } .trow svg .flat { stroke: var(--ink-3); }
+.trow .r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trow .r b { display: block; font-size: 14px; font-weight: 750; }
+.trow .r small { font-size: 12px; font-weight: 650; }
+@media (max-width: 560px) { .tgrid { grid-template-columns: minmax(0, 1fr); } .tpop { max-height: 70vh; overflow: auto; } }
+.ticker { flex: 1; min-width: 0; overflow: hidden; padding: 7px 0;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
 .tk:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
 .ticker-track .seq { display: inline-flex; }
@@ -693,7 +716,14 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <div class="live" id="live"><span class="pulse" id="pulse"></span><span id="live-text">불러오는 중</span></div>
     <button class="btn" id="refresh" title="증권사 API로 잔고를 동기화하고 시세와 환율을 새로 가져와요"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="t">새로고침</span></button>
     <button class="btn ink" id="analyze" title="AI가 뉴스를 찾아보며 전체 포트폴리오를 분석해요. 몇 분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/><circle cx="19" cy="19" r="2"/></svg><span class="t">AI 분석</span></button>
-    <div class="ticker" id="ticker" role="region" aria-label="시장 지표" hidden><div class="ticker-track" id="ticker-track"></div></div>
+    <div class="tbar" id="tbar" hidden>
+      <div class="ticker" id="ticker" role="region" aria-label="시장 지표"><div class="ticker-track" id="ticker-track"></div></div>
+      <button type="button" class="tall" id="ticker-all" aria-expanded="false" aria-controls="ticker-pop">전체 보기<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="tpop" id="ticker-pop" role="region" aria-label="시장 지표 전체" hidden>
+        <div class="tpop-h"><b>시장 지표</b><span class="quiet">선 그래프는 최근 1개월 · 누르면 차트가 열려요</span></div>
+        <div class="tgrid" id="ticker-grid"></div>
+      </div>
+    </div>
   </div>
 
   <main class="view" id="view-portfolio">
@@ -2459,8 +2489,46 @@ function renderTicker(items) {
     });
     ticker.last[q.key] = q.value;
   }
-  $("ticker").hidden = !items.length;
+  $("tbar").hidden = !items.length;
+  ticker.items = items;
+  if (!$("ticker-pop").hidden) renderTickerGrid();
 }
+// 전체 보기: 지표를 목록으로 펼친다 (작은 선 그래프는 최근 1개월, 처음 열 때 받아 온다)
+function sparkSvg(values) {
+  if (!values || values.length < 2) return `<svg width="72" height="26" aria-hidden="true"></svg>`;
+  const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * 70 + 1).toFixed(1)},${(24 - (v - lo) / span * 22).toFixed(1)}`).join(" ");
+  return `<svg width="72" height="26" aria-hidden="true"><polyline class="${tone(values.at(-1) - values[0])}" points="${pts}"/></svg>`;
+}
+function renderTickerGrid() {
+  $("ticker-grid").innerHTML = (ticker.items || []).map((q) => {
+    const spark = ticker.sparks?.[q.key]?.slice();
+    if (spark?.length) spark[spark.length - 1] = q.value;  // 마지막 점은 지금 값으로
+    return `<button type="button" class="trow" data-chart="${q.key}" data-market="INDEX" data-name="${esc(q.label)}">
+      <span class="n"><b>${esc(q.label)}</b><small>${TICKER_STATUS[q.status] || "실시간"}</small></span>
+      ${sparkSvg(spark)}
+      <span class="r"><b>${tickerValue(q)}</b><small class="${tone(q.change)}">${tickerChange(q) || "-"}</small></span></button>`;
+  }).join("");
+}
+async function toggleTickerList(open = $("ticker-pop").hidden) {
+  $("ticker-pop").hidden = !open;
+  $("ticker-all").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  renderTickerGrid();
+  $("ticker-grid").querySelector(".trow")?.focus({ preventScroll: true });
+  if (!ticker.sparks || Date.now() - ticker.sparksAt > 30 * 60000) {
+    try {
+      ticker.sparks = (await api("/api/markets/sparks")).sparks; ticker.sparksAt = Date.now();
+      if (!$("ticker-pop").hidden) renderTickerGrid();
+    } catch { /* 선 그래프는 없어도 된다 */ }
+  }
+}
+$("ticker-all").addEventListener("click", () => toggleTickerList());
+$("ticker-grid").addEventListener("click", (e) => { if (e.target.closest(".trow")) toggleTickerList(false); });
+document.addEventListener("click", (e) => { if (!$("ticker-pop").hidden && !e.target.closest("#tbar")) toggleTickerList(false); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("ticker-pop").hidden) { toggleTickerList(false); $("ticker-all").focus(); }
+});
 async function loadTicker() {
   if (document.hidden) return;
   try { renderTicker((await api("/api/markets")).items); } catch { /* 띠는 없어도 된다 */ }

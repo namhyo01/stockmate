@@ -175,3 +175,10 @@ def test_index_payload_uses_live_value_for_today():
     assert p["ohlc"][-1][3] == 250.5 and p["ohlc"][-1][1] >= 250.5  # 오늘 캔들은 실시간 값으로, 고가도 함께
     assert p["text"].startswith("#### 코스피 (^KS11)")
     assert technical.index_payload("nope", None, source=source) is None
+
+
+def test_index_sparks_last_month():
+    frame = make_frame([100 + i for i in range(200)])
+    source = technical.DailyCandles(lambda m, s: frame if s in ("^KS11", "^GSPC") else None)
+    sparks = technical.index_sparks(source=source)
+    assert set(sparks) == {"kospi", "sp500"} and len(sparks["kospi"]) == 22 and sparks["kospi"][-1] == 299

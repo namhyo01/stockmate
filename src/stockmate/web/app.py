@@ -287,6 +287,12 @@ def get_markets() -> dict[str, Any]:
     return {"items": markets.board.get()}
 
 
+@app.get("/api/markets/sparks")
+def get_market_sparks() -> dict[str, Any]:
+    """지표별 최근 한 달 종가 (전체 목록의 작은 선 그래프, 일봉 30분 캐시)."""
+    return {"sparks": technical.index_sparks()}
+
+
 # ── 차트 ───────────────────────────────────────────
 
 

@@ -731,6 +731,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .lv-line.stop, .lv-line.plan-sell { stroke: var(--down); stroke-width: 1.4; stroke-dasharray: 6 3; }
 .lv-line.target { stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 6 3; }
 .lv-t { font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.lv-t.avg { fill: var(--ink-2); }
 .lv-t.buy, .lv-t.plan-buy { fill: var(--up); } .lv-t.stop, .lv-t.plan-sell { fill: var(--down); } .lv-t.target, .lv-t.watch { fill: var(--ink); }
 .cai { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--sunken); }
 .cai h4 { margin: 0 0 8px; font-size: 14px; }
@@ -2538,9 +2539,15 @@ function drawChart() {
   // 평단·현재가 기준선과 오른쪽 표시
   const tags = [];
   const last = d.ohlc[n - 1][3];
-  if (chart.meta.avg != null && chart.meta.avg > lo && chart.meta.avg < hi) {
-    out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(chart.meta.avg)}" y2="${Y(chart.meta.avg)}"/>`);
-    tags.push({ cls: "avg", y: Y(chart.meta.avg), text: `평단 ${fmt(chart.meta.avg)}` });
+  const avg = chart.meta.avg;
+  if (avg != null && avg > lo && avg < hi) {
+    out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(avg)}" y2="${Y(avg)}"/>`);
+    label(Y(avg), `평단 ${chartPrice(avg, d)}`, "avg");  // 이름은 선 옆에, 오른쪽에는 가격만 (칸이 좁다)
+    tags.push({ cls: "avg", y: Y(avg), text: fmt(avg) });
+  } else if (avg != null) {
+    // 평단이 보이는 범위 밖이면 차트 위·아래 끝에 방향과 함께 알려준다
+    const above = avg >= hi;
+    label(above ? top + 16 : top + priceH - 2, `평단 ${chartPrice(avg, d)} ${above ? "▲ 차트 위쪽" : "▼ 차트 아래쪽"} (지금 ${pct((last / avg - 1) * 100, 1)})`, "avg");
   }
   const lastCls = last >= (d.ohlc[n - 2]?.[3] ?? last) ? "up" : "down";
   out.push(`<line class="ref ${lastCls}" x1="${padL}" x2="${W - padR}" y1="${Y(last)}" y2="${Y(last)}"/>`);

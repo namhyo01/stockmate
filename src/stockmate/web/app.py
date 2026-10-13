@@ -290,6 +290,16 @@ def get_markets() -> dict[str, Any]:
 # ── 차트 ───────────────────────────────────────────
 
 
+@app.get("/api/chart/index/{key}")
+def get_index_chart(key: str) -> dict[str, Any]:
+    """시장 지표 띠의 지표(코스피, 나스닥, 환율 등) 일봉 차트."""
+    live = next((q for q in markets.board.get() if q["key"] == key), None)
+    payload = technical.index_payload(key, live)
+    if payload is None:
+        raise HTTPException(404, "이 지표의 일봉을 가져오지 못했어요.")
+    return payload
+
+
 @app.get("/api/chart")
 def get_chart(market: Market, symbol: str = Query(min_length=1, max_length=20), name: str | None = None) -> dict[str, Any]:
     """종목의 일봉, 이동평균·일목균형표·볼린저, AI에게 넘기는 차트 요약."""

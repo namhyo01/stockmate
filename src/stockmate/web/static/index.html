@@ -71,16 +71,20 @@ button { cursor: pointer; }
 .live { font-size: 13px; color: var(--ink-3); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--up); flex: none; opacity: .9; }
 .pulse.on { animation: breathe 2.4s ease-in-out infinite; }
-/* 시장 지표 띠: 토스처럼 옆으로 흐른다. 마우스를 올리거나 포커스하면 멈춘다 */
+/* 시장 지표 띠: 토스처럼 옆으로 흐른다. 마우스를 올렸을 때와 키보드로 옮겨 왔을 때만 멈춘다
+   (클릭·탭 뒤에 남는 포커스나 터치 기기의 hover로 멈춘 채 남지 않게) */
 .top { flex-wrap: wrap; }
 .ticker { flex: 1 0 100%; order: 99; overflow: hidden; margin-top: 2px; padding: 7px 0; border-top: 1px solid var(--line);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
-.ticker:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.tk:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
 .ticker-track .seq { display: inline-flex; }
 .ticker-track { display: flex; width: max-content; animation: ticker var(--dur, 60s) linear infinite; }
-.ticker:hover .ticker-track, .ticker:focus-within .ticker-track { animation-play-state: paused; }
+@media (hover: hover) and (pointer: fine) { .ticker:hover .ticker-track { animation-play-state: paused; } }
+.ticker:has(:focus-visible) .ticker-track { animation-play-state: paused; }
 @keyframes ticker { to { transform: translateX(-50%); } }
-.tk { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 22px 0 0; margin-right: 22px; font-size: 13px; white-space: nowrap; border-right: 1px solid var(--line); }
+.tk { display: inline-flex; align-items: baseline; gap: 7px; padding: 2px 22px 2px 0; margin-right: 22px; font: inherit; font-size: 13px; white-space: nowrap;
+  border: 0; border-right: 1px solid var(--line); background: none; color: inherit; cursor: pointer; }
+.tk:hover b { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .tk b { font-weight: 650; color: var(--ink-2); }
 .tk .v { font-weight: 750; color: var(--ink); font-variant-numeric: tabular-nums; padding: 0 2px; }
 .tk .c { font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -689,7 +693,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <div class="live" id="live"><span class="pulse" id="pulse"></span><span id="live-text">불러오는 중</span></div>
     <button class="btn" id="refresh" title="증권사 API로 잔고를 동기화하고 시세와 환율을 새로 가져와요"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="t">새로고침</span></button>
     <button class="btn ink" id="analyze" title="AI가 뉴스를 찾아보며 전체 포트폴리오를 분석해요. 몇 분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/><circle cx="19" cy="19" r="2"/></svg><span class="t">AI 분석</span></button>
-    <div class="ticker" id="ticker" role="region" aria-label="시장 지표" tabindex="0" hidden><div class="ticker-track" id="ticker-track"></div></div>
+    <div class="ticker" id="ticker" role="region" aria-label="시장 지표" hidden><div class="ticker-track" id="ticker-track"></div></div>
   </div>
 
   <main class="view" id="view-portfolio">
@@ -2103,6 +2107,13 @@ const CHART_LINES = [
   { k: "bb_lower", layer: "bb", label: "볼린저 하단", cls: "l-bb" },
 ];
 const CLOUD_SHIFT = 25;  // 선행스팬을 그리는 자리 (technical.SHIFT와 같다)
+// 차트 가격 표시: 종목은 통화대로, 시장 지표는 소수 자리와 단위대로 (예: 5,969.68 / 5.206% / $82,233)
+function chartPrice(v, d = chart.data) {
+  if (v == null) return "-";
+  if (d?.currency !== "INDEX") return price(v, d?.currency);
+  const n = v.toLocaleString("en-US", { minimumFractionDigits: d.digits, maximumFractionDigits: d.digits });
+  return d.unit === "$" ? `$${n}` : d.unit === "%" ? `${n}%` : n;
+}
 const chart = { data: null, meta: null, cursor: null, req: 0, geo: null,
   range: Number(loadPref("chartRange", "126")) || 0, layers: loadJSON("chartLayers") };
 const layerOn = (k) => chart.layers[k] ?? k !== "bb";
@@ -2119,13 +2130,13 @@ document.addEventListener("click", (e) => {
 async function openChart(meta) {
   Object.assign(chart, { meta, data: null, cursor: null });
   $("chart-title").textContent = meta.name;
-  $("chart-sym").textContent = `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
+  $("chart-sym").textContent = meta.market === "INDEX" ? "시장 지표" : `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
   renderChartShell();
   if (!$("chart").open) $("chart").showModal();
   const req = ++chart.req;
   try {
     const q = new URLSearchParams({ market: meta.market, symbol: meta.symbol, name: meta.name });
-    const d = await api(`/api/chart?${q}`);
+    const d = await api(meta.market === "INDEX" ? `/api/chart/index/${encodeURIComponent(meta.symbol)}` : `/api/chart?${q}`);
     if (req !== chart.req) return;
     chart.data = d;
     renderChartShell();
@@ -2193,8 +2204,10 @@ function drawChart() {
   const ich = layerOn("ichimoku"), ahead = ich ? CLOUD_SHIFT : 0;
   const W = el.clientWidth, H = el.clientHeight;
   const padL = 4, padR = 70, top = 10, axisH = 20;
-  const volH = Math.round((H - top - axisH) * 0.18), priceH = H - top - axisH - volH - 10;
-  const volTop = top + priceH + 10;
+  const hasVol = d.volume.some((v) => v > 0);  // 환율·금리 등은 거래량이 없다
+  const volH = hasVol ? Math.round((H - top - axisH) * 0.18) : 0, gap = hasVol ? 10 : 0;
+  const priceH = H - top - axisH - volH - gap;
+  const volTop = top + priceH + gap;
   const bw = (W - padL - padR) / (count + ahead);
   const X = (i) => padL + (i - start + 0.5) * bw;  // i: 날짜 순번 (n 이상이면 앞날짜)
   const lines = CHART_LINES.filter((l) => layerOn(l.layer));
@@ -2213,7 +2226,8 @@ function drawChart() {
   let vmax = 0;
   for (let i = start; i < n; i++) vmax = Math.max(vmax, d.volume[i]);
   const VY = (v) => volTop + volH - (vmax ? (v / vmax) * volH : 0);
-  const fmt = (v) => cur === "USD" ? v.toFixed(v >= 1000 ? 0 : 2) : won(v);
+  const fmt = (v) => cur === "INDEX" ? v.toLocaleString("en-US", { maximumFractionDigits: d.digits })
+    : cur === "USD" ? v.toFixed(v >= 1000 ? 0 : 2) : won(v);
   const out = [];
 
   // 앞날짜(구름만 있는 자리)
@@ -2336,13 +2350,13 @@ function updateReadout() {
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const [o, h, l, c] = d.ohlc[i], prev = i ? d.ohlc[i - 1][3] : null;
   const chg = prev ? (c / prev - 1) * 100 : null;
-  const p = (v) => price(v, d.currency);
+  const p = (v) => chartPrice(v, d);
   const day = new Date(d.dates[i] + "T00:00:00");
   const live = i === n - 1 && d.summary?.intraday;
   el.innerHTML = `<b class="${tone(chg)}">${p(c)}</b><span class="${tone(chg)}">${pct(chg)}</span>
     <span>${d.dates[i].replaceAll("-", ".")}(${WEEK[day.getDay()]})${live ? " 장중" : ""}</span>
     <span><span class="k">시</span>${p(o)}</span><span><span class="k">고</span>${p(h)}</span><span><span class="k">저</span>${p(l)}</span>
-    <span><span class="k">거래량</span>${man(d.volume[i])}</span>`;
+    ${d.volume.some((v) => v > 0) ? `<span><span class="k">거래량</span>${man(d.volume[i])}</span>` : ""}`;
   drawLegend();
 }
 
@@ -2360,7 +2374,7 @@ function drawLegend() {
   const d = chart.data, el = $("chart-legend");
   if (!d || !el) return;
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
-  const p = (v) => v == null ? "-" : price(v, d.currency);
+  const p = (v) => chartPrice(v, d);
   const items = CHART_LINES.filter((l) => layerOn(l.layer)).map((l) =>
     `<span><svg width="18" height="10" aria-hidden="true" class="cplot-key">${LEGEND_KEY[l.k]}</svg>${l.label} <b>${p(d.lines[l.k][i])}</b></span>`);
   if (layerOn("ichimoku")) {
@@ -2421,8 +2435,9 @@ function renderTicker(items) {
   const track = $("ticker-track");
   const keys = items.map((q) => q.key).join(",");
   if (keys !== ticker.keys) {  // 지표 구성이 바뀔 때만 새로 만든다 (값만 바뀌면 흐르던 위치를 유지한다)
-    const one = items.map((q) => `<span class="tk" data-k="${q.key}"><b>${esc(q.label)}</b><span class="v"></span><span class="c"></span><small></small></span>`).join("");
+    const one = items.map((q) => `<button type="button" class="tk" data-k="${q.key}" data-chart="${q.key}" data-market="INDEX" data-name="${esc(q.label)}" title="${esc(q.label)} 차트 보기"><b>${esc(q.label)}</b><span class="v"></span><span class="c"></span><small></small></button>`).join("");
     track.innerHTML = `<span class="seq">${one}</span><span class="seq dup" aria-hidden="true">${one}</span>`;
+    track.querySelectorAll(".dup button").forEach((b) => { b.tabIndex = -1; });  // 이어 붙인 사본은 키보드로 두 번 거치지 않게
     ticker.keys = keys;
     requestAnimationFrame(() => {  // 초당 약 45px로 흐르게
       const w = track.querySelector(".seq").scrollWidth;

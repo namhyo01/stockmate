@@ -315,14 +315,14 @@ def _cross_text(cross: dict[str, Any] | None, label: str) -> str | None:
     return f"{label} {'골든크로스' if cross['type'] == 'golden' else '데드크로스'}({when})"
 
 
-def describe(name: str, symbol: str, market: Market, s: dict[str, Any]) -> str:
+def describe(name: str, symbol: str, market: Market, s: dict[str, Any], digits: int | None = None, unit: str | None = None) -> str:
     """요약을 프롬프트에 넣을 몇 줄의 글로 바꾼다."""
-    cur = market.currency
-    f = lambda v: _fmt(v, cur)  # noqa: E731
+    cur = market.currency if unit is None else unit  # 지수는 통화 대신 단위(없거나 %, 원)를 쓴다
+    f = (lambda v: _fmt(v, cur)) if digits is None else (lambda v: "-" if v is None else f"{v:,.{digits}f}")  # noqa: E731
     ich, bb, mc = s["ichimoku"], s["bollinger"], s["macd"]
     returns = ", ".join(f"{k} {v:+.1f}%" for k, v in s["returns"].items() if v is not None)
     lines = [
-        f"#### {name} ({symbol}, {market.value}) — {s['date']} {'장중 현재가' if s['intraday'] else '종가'} {f(s['close'])} {cur}",
+        f"#### {name} ({symbol}, {market.value}) — {s['date']} {'장중 현재가' if s['intraday'] else '종가'} {f(s['close'])} {cur}".rstrip(),
         f"- 수익률: {returns} / 52주 고가 {f(s['high_52w'])}({_pct(s['close'], s['high_52w']):+.1f}%), "
         f"저가 {f(s['low_52w'])}({_pct(s['close'], s['low_52w']):+.1f}%)",
     ]
@@ -416,9 +416,9 @@ def _series(values: pd.Series, digits: int) -> list[float | None]:
     return [None if pd.isna(v) else round(float(v), digits) for v in values]
 
 
-def chart_series(frame: pd.DataFrame, market: Market) -> dict[str, Any]:
+def chart_series(frame: pd.DataFrame, market: Market, digits: int | None = None) -> dict[str, Any]:
     """대시보드 캔들 차트에 그릴 값. 선행스팬은 그리는 자리(25칸 뒤)로 옮기고, 그만큼 앞날짜를 붙인다."""
-    digits = 0 if market is Market.KRX else 2
+    digits = (0 if market is Market.KRX else 2) if digits is None else digits
     close = frame["Close"]
     ich = ichimoku(frame)
     mid, std = close.rolling(20).mean(), close.rolling(20).std()
@@ -456,4 +456,43 @@ def chart_payload(market: Market, symbol: str, name: str | None = None, source: 
         "summary": summary,
         "text": describe(name or symbol, symbol, market, summary) if summary else None,
         **chart_series(frame, market),
+    }
+
+
+# 화면 위 시장 지표 띠의 지표 → (일봉을 받을 yfinance 티커, 장 시간 기준 시장, 소수 자리)
+INDEX_CHARTS = {
+    "kospi": ("^KS11", Market.KRX, 2), "kosdaq": ("^KQ11", Market.KRX, 2), "sp500": ("^GSPC", Market.US, 2),
+    "nasdaq": ("^IXIC", Market.US, 2), "dow": ("^DJI", Market.US, 2), "sox": ("^SOX", Market.US, 2),
+    "nikkei": ("^N225", None, 2), "usdkrw": ("KRW=X", None, 2), "us10y": ("^TNX", None, 3), "btc": ("BTC-USD", None, 0),
+}  # fmt: skip
+
+
+def index_payload(key: str, live: dict[str, Any] | None = None, source: DailyCandles | None = None) -> dict[str, Any] | None:
+    """시장 지표 하나의 차트 데이터. live(띠의 실시간 값)가 오늘 캔들과 같은 날이면 마지막 종가를 그 값으로 맞춘다."""
+    if key not in INDEX_CHARTS:
+        return None
+    ticker, session_market, digits = INDEX_CHARTS[key]
+    frame = (source or candles).get([(Market.US, ticker)]).get((Market.US, ticker))  # 지수는 모두 yfinance로 받는다
+    if frame is None or frame.empty:
+        return None
+    frame = frame.astype(float)  # 복사본 (실시간 값을 넣을 때 정수 열이면 깨진다)
+    if live and live.get("value") and live.get("at"):
+        live_date = pd.Timestamp(live["at"][:10])
+        if frame.index[-1] == live_date:
+            value = float(live["value"])
+            frame.loc[live_date, "Close"] = value
+            frame.loc[live_date, "High"] = max(frame.loc[live_date, "High"], value)
+            frame.loc[live_date, "Low"] = min(frame.loc[live_date, "Low"], value)
+    name = live.get("label") if live else key
+    unit = (live or {}).get("unit", "")
+    summary = summarize(frame, session_market)
+    return {
+        "symbol": ticker,
+        "market": "INDEX",
+        "currency": "INDEX",
+        "digits": digits,
+        "unit": unit,
+        "summary": summary,
+        "text": describe(name, ticker, Market.US, summary, digits=digits, unit=unit).replace(", US)", ")", 1) if summary else None,
+        **chart_series(frame, Market.US, digits),
     }

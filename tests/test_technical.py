@@ -163,3 +163,15 @@ def test_chart_payload_includes_summary_text():
     payload = technical.chart_payload(Market.US, "AAPL", "애플", source=source)
     assert payload["currency"] == "USD" and payload["text"].startswith("#### 애플")
     assert technical.chart_payload(Market.US, "NOPE", source=source) is None
+
+
+def test_index_payload_uses_live_value_for_today():
+    frame = make_frame([100 + i for i in range(200)])
+    last = frame.index[-1]
+    source = technical.DailyCandles(lambda m, s: frame if s == "^KS11" else None)
+    live = {"key": "kospi", "label": "코스피", "value": 250.5, "at": f"{last:%Y-%m-%d}T10:37:00+09:00", "unit": ""}
+    p = technical.index_payload("kospi", live, source=source)
+    assert p["currency"] == "INDEX" and p["digits"] == 2
+    assert p["ohlc"][-1][3] == 250.5 and p["ohlc"][-1][1] >= 250.5  # 오늘 캔들은 실시간 값으로, 고가도 함께
+    assert p["text"].startswith("#### 코스피 (^KS11)")
+    assert technical.index_payload("nope", None, source=source) is None

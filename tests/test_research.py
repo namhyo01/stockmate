@@ -26,3 +26,30 @@ def test_saved_returns_none_when_missing(tmp_path, monkeypatch):
     assert research.saved(Market.KRX, "005930") is None
     (tmp_path / "KRX_005930.json").write_text('{"markdown": "분석"}', encoding="utf-8")
     assert research.saved(Market.KRX, "005930") == {"markdown": "분석"}
+
+
+def test_add_to_ideas_uses_saved_card_or_extracts(tmp_path, monkeypatch):
+    import contextlib
+    import json
+
+    from sqlalchemy.orm import Session
+
+    from stockmate import analysis, ideas
+    from stockmate.db import make_engine
+
+    session = Session(make_engine("sqlite://"))
+    monkeypatch.setattr(research, "session_scope", lambda: contextlib.nullcontext(session))
+    monkeypatch.setattr(research, "DIR", tmp_path)
+    card = {"name": "현대차", "symbol": "005380", "account": "토스", "horizon": "swing", "summary": "기다릴 자리",
+            "stop": 295000, "target": 347500, "entry_low": 300000, "entry_high": 305000}  # fmt: skip
+    (tmp_path / "KRX_005380.json").write_text(json.dumps({"name": "현대차", "markdown": "글", "idea": card}), encoding="utf-8")
+    idea = research.add_to_ideas(Market.KRX, "005380")
+    assert (idea.source, idea.symbol, idea.horizon, int(idea.stop)) == ("search", "005380", "swing", 295000)
+
+    # 카드 없이 저장된 예전 분석은 글에서 뽑고, 뽑은 카드를 저장해 둔다
+    (tmp_path / "US_NVDA.json").write_text(json.dumps({"name": "엔비디아", "markdown": "분석 글"}), encoding="utf-8")
+    monkeypatch.setattr(analysis, "extract_idea", lambda md, name, symbol: {"name": "x", "summary": "요약", "horizon": "long"})
+    idea = research.add_to_ideas(Market.US, "NVDA")
+    assert (idea.name, idea.symbol, idea.horizon) == ("엔비디아", "NVDA", "long")
+    assert json.loads((tmp_path / "US_NVDA.json").read_text(encoding="utf-8"))["idea"]["summary"] == "요약"
+    assert len(ideas.active_ideas(session)) == 2

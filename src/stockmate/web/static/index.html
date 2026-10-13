@@ -411,7 +411,8 @@ a.btn { text-decoration: none; }
 .sres-ai { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .sres-ai-h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
 .sres-ai-h h3 { margin: 0; font-size: 16px; }
-.sres-ai-h .btn { margin-left: auto; }
+.sres-ai-h #search-idea { margin-left: auto; }
+.sres-ai-h #search-idea[hidden] + .btn { margin-left: auto; }
 .sres-ai .md { max-width: 90ch; }
 .disc-state { margin-top: 4px !important; font-size: 13px !important; }
 .disc-box { background: var(--surface); border-radius: 14px; padding: 14px 20px; margin: 0 0 14px; }
@@ -856,6 +857,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <div class="sres-pat" id="search-pat"></div>
       <section class="sres-ai">
         <div class="sres-ai-h"><h3>AI 종목 분석</h3><span class="quiet" id="search-ai-at"></span>
+          <button class="btn" type="button" id="search-idea" hidden title="이 분석을 추천 탭에 카드로 담아요. 같은 종목의 예전 추천은 새 것으로 바뀌어요."><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="t">추천 탭에 담기</span></button>
           <button class="btn ink" type="button" id="search-analyze" title="AI가 뉴스·실적·밸류에이션을 찾아보고 차트와 함께 분석해요. 1~3분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/></svg><span class="t">AI 분석하기</span></button></div>
         <div class="md" id="search-ai"></div>
       </section>
@@ -1836,7 +1838,7 @@ function ideaCard(i) {
     ${i.overlap ? `<div class="isec"><h4>가진 종목과 겹치는 정도</h4><p>${esc(i.overlap)}</p></div>` : ""}
     ${i.sources.length ? `<details class="isrc"><summary>출처 ${i.sources.length}개</summary><ul>${i.sources.map((s) =>
       `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a></li>`).join("")}</ul></details>` : ""}
-    <div class="ifoot"><span class="quiet">${{ chat: "AI 대화", analysis: "분석 리포트", extract: "AI 대화", weekly: "매주 발굴" }[i.source] || ""}에서</span>
+    <div class="ifoot"><span class="quiet">${{ chat: "AI 대화", analysis: "분석 리포트", extract: "AI 대화", weekly: "매주 발굴", search: "검색 탭" }[i.source] || ""}에서</span>
       ${i.symbol && i.market ? `<button class="btn sm" type="button" ${chartAttrs(i.market, i.symbol, i.name)}>차트</button>` : ""}
       ${i.planned ? `<a class="btn sm" href="#plans">계획 보기</a>` : ""}
       <button class="btn sm" type="button" data-idea="${i.id}" data-status="dismissed">관심 없음</button></div>
@@ -1899,7 +1901,7 @@ function renderScore() {
   const OUT = { target: "목표가 도달", stop: "철회 기준 이탈" };
   $("score-tbl").innerHTML = `<thead><tr><th>종목</th><th>추천일</th><th>출처</th><th>기간</th><th>지난 거래일</th><th>수익률</th><th>지수</th><th>지수 대비</th><th>결과</th></tr></thead><tbody>${
     c.items.map((r) => `<tr><td>${esc(r.name)} <span class="quiet">${esc(r.symbol)}</span></td><td>${r.created_at.slice(5).replace("-", "/")}</td>
-      <td class="l">${r.source === "weekly" ? "매주 발굴" : "대화·분석"}</td><td class="l">${r.horizon === "long" ? "장기" : r.horizon === "swing" ? "스윙" : "-"}</td>
+      <td class="l">${{ weekly: "매주 발굴", search: "검색 탭" }[r.source] || "대화·분석"}</td><td class="l">${r.horizon === "long" ? "장기" : r.horizon === "swing" ? "스윙" : "-"}</td>
       <td>${Math.min(r.days, r.eval_days)} / ${r.eval_days}일</td><td>${f(r.ret)}</td><td>${f(r.bench)}</td><td>${f(r.excess, "%p")}</td>
       <td class="l">${r.outcome ? `${OUT[r.outcome.type]} (${r.outcome.date.slice(5).replace("-", "/")})` : r.done ? "끝남" : "평가 중"}</td></tr>`).join("")}</tbody>`;
 }
@@ -2686,6 +2688,7 @@ async function selectStock(item) {
   $("search-head").innerHTML = `<h2>${esc(name)}</h2><span class="sym">${esc(meta.symbol)} · ${MARKET_LABEL[meta.market]}</span>`;
   $("search-pat").innerHTML = ""; $("search-ai").innerHTML = ""; $("search-ai-at").textContent = "";
   $("search-analyze").querySelector(".t").textContent = "AI 분석하기";
+  search.hasAnalysis = false; search.inIdeas = false; renderIdeaButton();
   const view = api(`/api/stock?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`).catch(() => null);
   search.chart = null;
   const data = await loadChartInto($("search-chart"), meta);
@@ -2708,13 +2711,32 @@ function renderStockView(meta, v) {
       ${esc(h.description)}.<br>${h.stats
         ? `과거 ${h.stats.count.toLocaleString("ko-KR")}번, ${h.days}일 뒤 평균 ${f(h.stats.mean)} · 지수 대비 평균 ${f(h.stats.excess_mean, "%p")}, 중간값 ${f(h.stats.excess_median, "%p")} · 지수를 이긴 비율 ${h.stats.beat_rate.toFixed(0)}% · <span class="${h.stats.proven ? "ok" : ""}">${h.stats.proven ? "꾸준히 통함" : "꾸준하지 않음"}</span>`
         : "과거 성과는 주간 발굴을 한 번 돌린 뒤에 보여요."}</div>`).join("");
+  search.inIdeas = v.in_ideas;
   renderStockAnalysis(v.analysis);
 }
+function renderIdeaButton() {
+  const b = $("search-idea");
+  b.hidden = !search.hasAnalysis;
+  b.querySelector(".t").textContent = search.inIdeas ? "추천 탭에 있어요 · 다시 담기" : "추천 탭에 담기";
+}
+$("search-idea").addEventListener("click", async () => {
+  const meta = search.current; if (!meta) return;
+  const btn = $("search-idea");
+  busy(btn, true, "담는 중");
+  try {
+    await api("/api/stock/idea", { method: "POST", body: JSON.stringify({ market: meta.market, symbol: meta.symbol }) });
+    search.inIdeas = true;
+    idea.data = null;  // 추천 탭을 열면 새로 불러온다
+    toast(`${meta.name}을(를) 추천 탭에 담았어요`);
+  } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
+  finally { busy(btn, false); if (search.current === meta) renderIdeaButton(); }
+});
 function renderStockAnalysis(a) {
   $("search-ai").innerHTML = a ? markdown(a.markdown) : `<p class="quiet">아직 분석한 적이 없어요. AI가 뉴스·실적·밸류에이션을 찾아보고 차트·패턴과 함께 분석해요.</p>`;
   $("search-ai-at").textContent = a ? `${new Date(a.created_at).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })} 분석` : "";
   search.hasAnalysis = Boolean(a);
   $("search-analyze").querySelector(".t").textContent = a ? "다시 분석" : "AI 분석하기";
+  renderIdeaButton();
 }
 $("search-analyze").addEventListener("click", async () => {
   const meta = search.current; if (!meta) return;

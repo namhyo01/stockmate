@@ -457,6 +457,32 @@ _EXTRACT_IDEAS = """아래는 투자 비서 AI가 사용자에게 한 답변입�
 """
 
 
+_IDEA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **_IDEAS_SCHEMA["properties"]["ideas"]["items"]["properties"],
+        "horizon": {"enum": ["swing", "long", None]},
+        "target": {"type": ["number", "null"]},
+        "stop": {"type": ["number", "null"]},
+    },
+    "required": [*_IDEAS_SCHEMA["properties"]["ideas"]["items"]["required"], "horizon", "target", "stop"],
+}
+
+_EXTRACT_IDEA = """아래는 투자 비서 AI가 종목 하나({name}, {symbol})를 분석한 글입니다. 이 글을 추천 카드 하나로 옮기세요.
+글에 없는 내용을 지어내지 말고, 출처 링크는 글에 있는 것만 쓰세요. 사지 않는 게 낫다는 결론이면 summary에 그렇게 쓰세요.
+{ideas_guide}
+
+## 분석 글
+{markdown}
+"""
+
+
+def extract_idea(markdown: str, name: str, symbol: str) -> dict[str, Any]:
+    """종목 분석 글에서 추천 카드 하나를 뽑는다 (카드 정보 없이 저장된 예전 분석용, 도구 없이 30초쯤)."""
+    prompt = _EXTRACT_IDEA.format(name=name, symbol=symbol, ideas_guide=ideas.IDEAS_GUIDE, markdown=markdown)
+    return _run_claude_json(prompt, _IDEA_SCHEMA)
+
+
 def extract_ideas(answer: str, held: list[str]) -> list[dict[str, Any]]:
     """이미 받은 답변에서 추천 종목 카드를 뽑는다 (ideas 블록이 없던 예전 답변용)."""
     prompt = _EXTRACT_IDEAS.format(ideas_guide=ideas.IDEAS_GUIDE, held=", ".join(held) or "(없음)", answer=answer)

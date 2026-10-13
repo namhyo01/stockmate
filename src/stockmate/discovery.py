@@ -444,7 +444,7 @@ def scorecard(session: Session, source: technical.DailyCandles | None = None) ->
 
     done = [r for r in results if r["done"]]
     by: dict[str, dict[str, Any]] = {}
-    for label, key in (("출처", lambda r: "매주 발굴" if r["source"] == "weekly" else "대화·분석"),
+    for label, key in (("출처", lambda r: {"weekly": "매주 발굴", "search": "검색 탭"}.get(r["source"], "대화·분석")),
                        ("기간", lambda r: {"swing": "스윙", "long": "장기"}.get(r["horizon"], "미정"))):  # fmt: skip
         buckets: dict[str, list] = {}
         for r in done:

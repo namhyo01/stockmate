@@ -318,6 +318,23 @@ def analyze_stock(body: StockQuery) -> dict[str, Any]:
         _ask_lock.release()
 
 
+class StockKey(BaseModel):
+    market: Market
+    symbol: str = Field(min_length=1, max_length=20)
+
+
+@app.post("/api/stock/idea")
+def add_stock_idea(body: StockKey) -> dict[str, Any]:
+    """검색 탭의 종목 분석을 추천 탭에 담는다 (예전 분석이면 카드를 뽑느라 30초쯤 걸린다)."""
+    try:
+        idea = research.add_to_ideas(body.market, portfolio.normalize_symbol(body.symbol))
+    except LookupError as e:
+        raise HTTPException(400, str(e)) from None
+    except analysis.AnalysisError as e:
+        raise HTTPException(502, str(e)) from None
+    return {"id": idea.id, "name": idea.name}
+
+
 # ── 시장 지표 띠 ──────────────────────────────────
 
 

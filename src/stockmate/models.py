@@ -225,7 +225,7 @@ class Idea(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
-    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | extract | weekly(매주 토요일 발굴)
+    source: Mapped[str] = mapped_column(String(20))  # chat | analysis | extract | weekly(매주 토요일 발굴) | search(검색 탭 분석)
     name: Mapped[str] = mapped_column(String(100))
     symbol: Mapped[str | None] = mapped_column(String(20))
     market: Mapped[Market | None] = mapped_column(_enum(Market))

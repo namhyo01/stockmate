@@ -131,10 +131,24 @@ button { cursor: pointer; }
 .btn:disabled { opacity: .6; cursor: progress; }
 #theme { padding: 8px 10px; }  /* 아이콘만: 밝을 때 달(켜기), 어두울 때 해(끄기) */
 #theme .i-sun { display: none; }
-#theme svg { animation: theme-icon .5s cubic-bezier(.2, .8, .2, 1); }  /* 아이콘이 바뀔 때 돌면서 나타난다 */
-@keyframes theme-icon { from { transform: rotate(-120deg) scale(.3); opacity: 0; } }
-/* 테마 전환: 버튼 자리에서 원이 퍼지며 새 화면이 덮는다 (View Transitions). 기본 겹침 효과는 끈다 */
-::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+#theme { transition: transform .15s ease; }
+#theme:active { transform: scale(.9); }
+#theme svg { animation: theme-icon .6s cubic-bezier(.34, 1.56, .64, 1); }  /* 아이콘이 바뀔 때 살짝 튕기며 돌아 나타난다 */
+@keyframes theme-icon { from { transform: rotate(-150deg) scale(.2); opacity: 0; } }
+/* 테마 전환 (View Transitions): 버튼 자리에서 경계가 부드러운 원이 퍼지며 새 화면이 덮고, 이전 화면은 살짝 가라앉는다.
+   --vt-x, --vt-y(원의 중심), --vt-max(화면 끝까지의 거리)는 버튼을 누를 때 스크립트가 넣는다 */
+@property --vt-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+::view-transition-group(root) { animation-duration: .8s; }
+::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; }
+::view-transition-new(root) {
+  --vt-edge: 56px;
+  animation: vt-reveal .8s cubic-bezier(.65, 0, .35, 1) both;
+  -webkit-mask-image: radial-gradient(circle at var(--vt-x) var(--vt-y), #000 calc(var(--vt-r) - var(--vt-edge)), transparent var(--vt-r));
+  mask-image: radial-gradient(circle at var(--vt-x) var(--vt-y), #000 calc(var(--vt-r) - var(--vt-edge)), transparent var(--vt-r));
+}
+::view-transition-old(root) { animation: vt-recede .8s cubic-bezier(.65, 0, .35, 1) both; }
+@keyframes vt-reveal { from { --vt-r: 0px; } to { --vt-r: calc(var(--vt-max) + var(--vt-edge)); } }
+@keyframes vt-recede { to { filter: brightness(.82) saturate(.9); } }
 #theme[aria-pressed="true"] .i-sun { display: block; }
 #theme[aria-pressed="true"] .i-moon { display: none; }
 .spin { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }
@@ -1569,11 +1583,9 @@ $("theme").addEventListener("click", () => {
   const r = $("theme").getBoundingClientRect();
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-  const t = document.startViewTransition(toggleTheme);
-  t.ready.then(() => document.documentElement.animate(
-    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-    { duration: 600, easing: "cubic-bezier(.4, 0, .2, 1)", pseudoElement: "::view-transition-new(root)" },
-  )).catch(() => {});
+  const root = document.documentElement.style;
+  root.setProperty("--vt-x", `${x}px`); root.setProperty("--vt-y", `${y}px`); root.setProperty("--vt-max", `${radius}px`);
+  document.startViewTransition(toggleTheme);
 });
 function toggleTheme() {
   const next = dark() ? "light" : "dark";

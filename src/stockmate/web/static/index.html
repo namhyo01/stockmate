@@ -6,6 +6,10 @@
 <title>stockmate</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='17' height='28' rx='3' fill='%23e5343f'/><rect x='21' y='2' width='9' height='13' rx='3' fill='%232b6bd8'/><rect x='21' y='17' width='9' height='13' rx='3' fill='%23f0a3a8'/></svg>">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wanteddev/wanted-sans@v1.0.3/packages/wanted-sans/fonts/webfonts/variable/split/WantedSansVariable.min.css">
+<script>
+  // 고른 테마를 그리기 전에 적용한다 (깜빡이지 않게). 고른 적이 없으면 기기 설정을 따른다.
+  try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <style>
@@ -125,6 +129,9 @@ button { cursor: pointer; }
 .btn.ink { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .btn.ink:hover { opacity: .9; }
 .btn:disabled { opacity: .6; cursor: progress; }
+#theme .i-sun { display: none; }
+#theme[aria-pressed="true"] .i-sun { display: block; }
+#theme[aria-pressed="true"] .i-moon { display: none; }
 .spin { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -782,6 +789,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <a href="#analysis" role="tab" data-view="analysis" aria-selected="false">분석</a>
     </nav>
     <div class="live" id="live"><span class="pulse" id="pulse"></span><span id="live-text">불러오는 중</span></div>
+    <button class="btn" id="theme" type="button" aria-pressed="false"><svg class="i-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><svg class="i-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="t">다크 모드</span></button>
     <button class="btn" id="refresh" title="증권사 API로 잔고를 동기화하고 시세와 환율을 새로 가져와요"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="t">새로고침</span></button>
     <button class="btn ink" id="analyze" title="AI가 뉴스를 찾아보며 전체 포트폴리오를 분석해요. 몇 분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/><circle cx="19" cy="19" r="2"/></svg><span class="t">AI 분석</span></button>
     <div class="tbar" id="tbar" hidden>
@@ -1541,7 +1549,29 @@ $("pulse").classList.add("on");
 
 let resizeTimer;
 addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state.data && renderMap(state.data), 120); });
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => state.data && renderMap(state.data));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeButton(); state.data && renderMap(state.data); });
+
+/* ── 다크 모드 켜기·끄기 ─────────────────── */
+// 버튼은 지금 보이는 테마의 반대로 바꾼다. 바꾼 결과가 기기 설정과 같으면 저장을 지워서 다시 기기 설정을 따르게 한다.
+function syncThemeButton() {
+  const on = dark();
+  $("theme").setAttribute("aria-pressed", String(on));
+  $("theme").title = on ? "다크 모드 끄기 (밝은 화면)" : "다크 모드 켜기 (어두운 화면)";
+}
+$("theme").addEventListener("click", () => {
+  const next = dark() ? "light" : "dark";
+  const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  if (next === system) {
+    delete document.documentElement.dataset.theme;
+    try { localStorage.removeItem("theme"); } catch {}
+  } else {
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("theme", next); } catch {}
+  }
+  syncThemeButton();
+  if (state.data) renderMap(state.data);  // 주식 지도 색은 스크립트가 고른다 (나머지는 CSS가 바로 바뀐다)
+});
+syncThemeButton();
 
 /* ── Claude ───────────────────────────── */
 let pollTimer = null;

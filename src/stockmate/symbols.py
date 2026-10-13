@@ -201,3 +201,105 @@ def find_symbols(text: str, extra: Iterable[Found] = (), limit: int = 5, listing
     for market, symbol, name in found:
         seen.setdefault((market, symbol), (market, symbol, name))
     return list(seen.values())[:limit]
+
+
+# ── 검색 탭: 종목명·티커 자동완성 ─────────────────────
+
+_us_listing: dict[str, str] | None = None  # 미국 티커 → 영문 이름
+
+
+def us_names(path: Path | None = None) -> dict[str, str]:
+    """미국 상장 종목(나스닥·뉴욕·아멕스, 약 7,000개) 티커 → 이름. 일주일 캐시, 처음 받을 때 30초쯤 걸린다."""
+    global _us_listing
+    path = path or settings.db_path.parent / "us_names.json"
+    with _lock:
+        if _us_listing is not None:
+            return _us_listing
+        cached: dict[str, str] = {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            cached = data["names"]
+            if dt.datetime.now() - dt.datetime.fromisoformat(data["fetched_at"]) < _LISTING_TTL:
+                _us_listing = cached
+                return _us_listing
+        except (OSError, ValueError, KeyError):
+            pass
+        try:
+            import FinanceDataReader as fdr
+
+            names: dict[str, str] = {}
+            for exchange in ("NASDAQ", "NYSE", "AMEX"):
+                listing = fdr.StockListing(exchange)
+                names.update({normalize_symbol(str(s)): str(n) for s, n in zip(listing["Symbol"], listing["Name"])})
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"fetched_at": dt.datetime.now().isoformat(), "names": names}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            _us_listing = names
+        except Exception as e:
+            log.warning("미국 종목 목록 조회 실패: %s", e)
+            _us_listing = cached
+        return _us_listing
+
+
+def search(
+    query: str,
+    extra: Iterable[Found] = (),
+    limit: int = 10,
+    krx: dict[str, str] | None = None,
+    us: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
+    """검색 탭 자동완성: 국내 종목·ETF 이름과 코드, 미국 티커와 영문 이름, 미국 종목 한글 이름, DB 종목명.
+
+    점수: 코드·티커가 같으면 가장 위, 그다음 이름이 검색어로 시작, 이름에 들어 있음 순. 같으면 이름이 짧은 것부터.
+    목록에 없어도 6자리 코드나 영문 티커처럼 생겼으면 '직접 조회' 후보로 하나 붙인다.
+    """
+    from stockmate.history import US_ETFS
+
+    q = _compact(query).upper()
+    if not q:
+        return []
+    krx = krx_names() if krx is None else krx
+    us = us_names() if us is None else us
+    rows: dict[tuple[str, str], tuple[int, str]] = {}
+
+    def offer(market: Market, symbol: str, name: str, score: int) -> None:
+        key = (market.value, symbol)
+        if key not in rows or rows[key][0] < score:
+            rows[key] = (score, name)
+
+    def score_of(symbol: str, name: str) -> int:
+        n = _compact(name).upper()
+        if symbol.upper() == q:
+            return 100
+        if symbol.upper().startswith(q):
+            return 80
+        if n == q:
+            return 90
+        if n.startswith(q):
+            return 70
+        if q in n:
+            return 50
+        return 0
+
+    for name, code in krx.items():
+        if s := score_of(code, name):
+            offer(Market.KRX, code, name, s)
+    for ticker, name in {**us, **US_ETFS}.items():
+        if s := score_of(ticker, name):
+            offer(Market.US, ticker, name, s)
+    for name, ticker in US_KOREAN_NAMES.items():
+        if s := score_of("", name):
+            offer(Market.US, ticker, us.get(ticker) or name, s + 5)  # 한글로 찾으면 미국 종목도 위로
+    for market, symbol, name in extra:
+        if s := score_of(symbol, name or symbol):
+            offer(market, symbol, name or symbol, s + 10)  # 보유했거나 추천받은 종목을 위로
+    ordered = sorted(rows.items(), key=lambda kv: (-kv[1][0], len(kv[1][1]), kv[0][1]))[:limit]
+    result = [{"market": m, "symbol": s, "name": n} for (m, s), (_, n) in ordered]
+    if not any(r["symbol"].upper() == q for r in result):
+        if re.fullmatch(r"\d{6}", q):
+            result.append({"market": "KRX", "symbol": q, "name": f"{q} 직접 조회"})
+        elif re.fullmatch(r"[A-Z]{1,5}([.-][A-Z])?", q):
+            result.append({"market": "US", "symbol": normalize_symbol(q), "name": f"{q} 직접 조회"})
+    return result

@@ -46,3 +46,21 @@ def test_ticker_inside_korean_name_is_not_a_ticker():
 
 def test_limit():
     assert len(find("AAPL MSFT NVDA AMZN GOOGL META TSLA")) == 5
+
+
+US = {"NVDA": "NVIDIA Corporation", "NVO": "Novo Nordisk", "AAPL": "Apple Inc.", "APP": "AppLovin"}
+
+
+def test_search_ranks_exact_ticker_then_prefix():
+    rows = symbols.search("nvd", krx=LISTING, us=US)
+    assert rows[0]["symbol"] == "NVDA"
+    rows = symbols.search("APP", krx=LISTING, us=US)
+    assert [r["symbol"] for r in rows[:2]] == ["APP", "AAPL"]  # 티커가 같은 게 먼저, 이름이 시작하는 게 다음
+
+
+def test_search_korean_names_and_direct_lookup():
+    assert symbols.search("삼성", krx=LISTING, us=US)[0]["symbol"] == "005930"  # 짧은 이름이 먼저
+    assert symbols.search("엔비디아", krx=LISTING, us=US)[0] == {"market": "US", "symbol": "NVDA", "name": "NVIDIA Corporation"}
+    assert symbols.search("PLTR", krx=LISTING, us=US)[-1] == {"market": "US", "symbol": "PLTR", "name": "PLTR 직접 조회"}
+    assert symbols.search("123456", krx=LISTING, us=US)[-1]["market"] == "KRX"
+    assert symbols.search("   ", krx=LISTING, us=US) == []

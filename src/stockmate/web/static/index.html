@@ -382,6 +382,37 @@ body[data-view="claude"] footer { display: none; }
 .ifoot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ifoot .quiet { font-size: 12.5px; margin-right: auto; }
 a.btn { text-decoration: none; }
+
+/* 검색 탭 */
+.sbox { position: relative; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; margin-top: 6px; }
+.sbox:focus-within { border-color: var(--focus); }
+.sbox > svg { color: var(--ink-3); flex: none; }
+.sbox input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink); font: inherit; font-size: 16px; padding: 14px 0; }
+.ssug { position: absolute; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none; background: var(--surface); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.18); z-index: 15; max-height: 60vh; overflow: auto; }
+.ssug li { display: flex; align-items: baseline; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.ssug li[aria-selected="true"], .ssug li:hover { background: var(--sunken); }
+.ssug li b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ssug li span { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; margin-left: auto; }
+.ssug li.none { color: var(--ink-3); cursor: default; }
+.srecent { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.srecent button { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 600; padding: 4px 11px; border-radius: 999px; cursor: pointer; }
+.srecent button:hover { color: var(--ink); border-color: var(--ink-3); }
+.sempty { margin-top: 26px; font-size: 14.5px; color: var(--ink-2); }
+.sempty p { margin: 0 0 4px; }
+.sres { margin-top: 18px; background: var(--surface); border-radius: 16px; padding: 18px 22px 22px; }
+.sres-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 8px; }
+.sres-head h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+.sres-head .sym { font-size: 13.5px; color: var(--ink-3); font-weight: 600; }
+.sres-head .held { font-size: 12.5px; font-weight: 650; padding: 3px 9px; border-radius: 6px; background: var(--sunken); color: var(--ink-2); }
+.sres-pat { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; margin-top: 16px; }
+.spat { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.spat b { display: block; font-size: 14px; color: var(--ink); margin-bottom: 2px; }
+.spat .ok { color: var(--ink); font-weight: 700; }
+.sres-ai { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sres-ai-h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.sres-ai-h h3 { margin: 0; font-size: 16px; }
+.sres-ai-h .btn { margin-left: auto; }
+.sres-ai .md { max-width: 90ch; }
 .disc-state { margin-top: 4px !important; font-size: 13px !important; }
 .disc-box { background: var(--surface); border-radius: 14px; padding: 14px 20px; margin: 0 0 14px; }
 .disc-box summary { cursor: pointer; font-weight: 700; font-size: 15px; }
@@ -710,6 +741,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <a href="#portfolio" role="tab" data-view="portfolio" aria-selected="true">포트폴리오</a>
       <a href="#plans" role="tab" data-view="plans" aria-selected="false">계획</a>
       <a href="#ideas" role="tab" data-view="ideas" aria-selected="false">추천</a>
+      <a href="#search" role="tab" data-view="search" aria-selected="false">검색</a>
       <a href="#ai" role="tab" data-view="claude" aria-selected="false">AI</a>
       <a href="#analysis" role="tab" data-view="analysis" aria-selected="false">분석</a>
     </nav>
@@ -802,6 +834,32 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <div class="tbl"><table class="score-tbl" id="disc-stats-tbl"></table></div>
     </details>
     <details class="plan-closed" id="idea-old" hidden><summary id="idea-old-sum">관심 없음으로 넘긴 종목</summary><div id="idea-old-list"></div></details>
+  </section>
+  </main>
+
+  <main class="view" id="view-search" hidden>
+  <section>
+    <div class="sbox">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="search-q" type="search" placeholder="종목명이나 티커 (예: 삼성전자, 엔비디아, NVDA, 005930)" autocomplete="off" spellcheck="false"
+        role="combobox" aria-expanded="false" aria-controls="search-sug" aria-autocomplete="list" aria-label="종목 검색">
+      <ul class="ssug" id="search-sug" role="listbox" aria-label="검색 결과" hidden></ul>
+    </div>
+    <div class="srecent" id="search-recent"></div>
+    <div class="sempty" id="search-empty">
+      <p>국내·미국 종목과 ETF를 찾아서 차트를 보고, AI에게 그 종목 분석을 맡길 수 있어요.</p>
+      <p class="quiet">국내 약 4,000개(종목·ETF)와 미국 약 7,000개 종목에서 찾아요. 목록에 없는 미국 티커도 그대로 넣으면 조회해요.</p>
+    </div>
+    <article class="sres" id="search-res" hidden>
+      <div class="sres-head" id="search-head"></div>
+      <div class="sres-chart" id="search-chart"></div>
+      <div class="sres-pat" id="search-pat"></div>
+      <section class="sres-ai">
+        <div class="sres-ai-h"><h3>AI 종목 분석</h3><span class="quiet" id="search-ai-at"></span>
+          <button class="btn ink" type="button" id="search-analyze" title="AI가 뉴스·실적·밸류에이션을 찾아보고 차트와 함께 분석해요. 1~3분 걸려요."><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z"/></svg><span class="t">AI 분석하기</span></button></div>
+        <div class="md" id="search-ai"></div>
+      </section>
+    </article>
   </section>
   </main>
 
@@ -1873,7 +1931,7 @@ $("view-ideas").addEventListener("click", async (e) => {
 });
 
 /* ── 화면 탭 (#portfolio, #plans, #ideas, #claude, #analysis) ── */
-const VIEWS = ["portfolio", "plans", "ideas", "claude", "analysis"];
+const VIEWS = ["portfolio", "plans", "ideas", "search", "claude", "analysis"];
 function showView(view) {
   if (!VIEWS.includes(view)) view = "portfolio";
   const changed = state.view !== view;
@@ -1885,6 +1943,7 @@ function showView(view) {
   if (view === "portfolio" && state.data) renderMap(state.data);  // 숨겨져 있던 동안은 지도 크기를 잴 수 없었다
   if (view === "plans") loadPlans();
   if (view === "ideas") { loadIdeas(); loadDiscovery(); }
+  if (view === "search") setTimeout(enterSearch);  // 처음 열 때는 검색 코드(아래쪽)가 준비된 뒤에
   if (view === "claude") {
     (chat.loaded ? Promise.resolve() : loadChat()).then(() => { scrollToBottom(); if (matchMedia("(pointer: fine)").matches) $("question").focus(); });
     if (chat.loaded) loadChat().then(scrollToBottom);  // 다른 기기에서 물어본 것까지 새로 읽는다
@@ -2157,42 +2216,58 @@ document.addEventListener("click", (e) => {
   openChart({ market: b.dataset.market, symbol: b.dataset.chart, name: b.dataset.name, avg: b.dataset.avg ? Number(b.dataset.avg) : null });
 });
 
-async function openChart(meta) {
-  Object.assign(chart, { meta, data: null, cursor: null });
-  $("chart-title").textContent = meta.name;
-  $("chart-sym").textContent = meta.market === "INDEX" ? "시장 지표" : `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
+// 차트는 한 번에 한 곳(차트 창 또는 검색 탭)에 그린다. chart.root가 지금 그리는 곳이다.
+const cq = (k) => chart.root?.querySelector(`[data-c="${k}"]`);
+function mountChart(root, meta, data) {
+  Object.assign(chart, { root, meta, data, cursor: null });
   renderChartShell();
-  if (!$("chart").open) $("chart").showModal();
+}
+async function loadChartInto(root, meta) {
+  mountChart(root, meta, null);
   const req = ++chart.req;
   try {
     const q = new URLSearchParams({ market: meta.market, symbol: meta.symbol, name: meta.name });
     const d = await api(meta.market === "INDEX" ? `/api/chart/index/${encodeURIComponent(meta.symbol)}` : `/api/chart?${q}`);
-    if (req !== chart.req) return;
+    if (req !== chart.req) return null;
     chart.data = d;
     renderChartShell();
+    return d;
   } catch (e) {
-    if (req === chart.req) $("chart-plot").innerHTML = `<div class="loading">차트를 불러오지 못했어요: ${esc(e.message)}</div>`;
+    if (req === chart.req) cq("plot").innerHTML = `<div class="loading">차트를 불러오지 못했어요: ${esc(e.message)}</div>`;
+    return null;
   }
 }
+async function openChart(meta) {
+  $("chart-title").textContent = meta.name;
+  $("chart-sym").textContent = meta.market === "INDEX" ? "시장 지표" : `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
+  if (!$("chart").open) $("chart").showModal();
+  await loadChartInto($("chart-body"), meta);
+}
 $("chart-close").addEventListener("click", () => $("chart").close());
-$("chart").addEventListener("close", () => { chart.req++; chart.data = null; });
+$("chart").addEventListener("close", () => {
+  chart.req++; chart.data = null;
+  $("chart-body").innerHTML = "";
+  if (state.view === "search" && search.chart) mountChart($("search-chart"), search.chart.meta, search.chart.data);  // 검색 탭 차트로 돌아간다
+});
 
 function renderChartShell() {
   const d = chart.data;
-  $("chart-body").innerHTML = `
+  chart.root.innerHTML = `
     <div class="ctool">
       <div class="seg" role="group" aria-label="기간">${CHART_RANGES.map(([n, label]) =>
         `<button type="button" class="tab" data-crange="${n}" aria-pressed="${chart.range === n}">${label}</button>`).join("")}</div>
       <div class="seg" role="group" aria-label="지표">${CHART_LAYERS.map(([k, label]) =>
         `<button type="button" class="tab" data-clayer="${k}" aria-pressed="${layerOn(k)}">${label}</button>`).join("")}</div>
     </div>
-    <div class="cread" id="chart-read" aria-live="off"></div>
-    <div class="cplot" id="chart-plot">${d ? "" : `<div class="loading"><span><span class="spin"></span> 일봉을 불러오는 중이에요</span></div>`}</div>
-    <div class="clegend" id="chart-legend"></div>
+    <div class="cread" data-c="read" aria-live="off"></div>
+    <div class="cplot" data-c="plot">${d ? "" : `<div class="loading"><span><span class="spin"></span> 일봉을 불러오는 중이에요</span></div>`}</div>
+    <div class="clegend" data-c="legend"></div>
     ${d?.text ? chartSummary(d.text) : ""}`;
   if (d) { drawChart(); updateReadout(); }
 }
-$("chart-body").addEventListener("click", (e) => {
+function bindChartRoot(root) {
+root.addEventListener("click", (e) => {
+  if (chart.root !== root) return;
   const r = e.target.closest("[data-crange]");
   if (r) {
     chart.range = Number(r.dataset.crange);
@@ -2204,11 +2279,12 @@ $("chart-body").addEventListener("click", (e) => {
     try { localStorage.setItem("chartLayers", JSON.stringify(chart.layers)); } catch {}
   }
   if (!r && !l) return;
-  $("chart-body").querySelectorAll("[data-crange]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.crange) === chart.range)));
-  $("chart-body").querySelectorAll("[data-clayer]").forEach((b) => b.setAttribute("aria-pressed", String(layerOn(b.dataset.clayer))));
+  root.querySelectorAll("[data-crange]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.crange) === chart.range)));
+  root.querySelectorAll("[data-clayer]").forEach((b) => b.setAttribute("aria-pressed", String(layerOn(b.dataset.clayer))));
   chart.cursor = null;
   drawChart(); updateReadout();
 });
+}
 
 // 서버가 AI에게 넘기는 차트 요약 글을 그대로 보여준다 ("- 항목: 내용" 줄들)
 function chartSummary(text) {
@@ -2227,7 +2303,7 @@ function niceStep(span, count) {
 }
 
 function drawChart() {
-  const d = chart.data, el = $("chart-plot");
+  const d = chart.data, el = cq("plot");
   if (!d || !el) return;
   const cur = d.currency, n = d.dates.length;
   const count = chart.range ? Math.min(chart.range, n) : n, start = n - count;
@@ -2339,7 +2415,7 @@ function drawChart() {
     <text x="${W - padR + 6}" y="${t.y + 4}">${esc(t.text)}</text></g>`));
 
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(chart.meta.name)} 일봉 차트. 화살표 키로 날짜를 옮겨요">
-    ${out.join("")}<g id="chart-cross"></g><rect id="chart-hit" x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
+    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
   chart.geo = { start, n, X, Y, bw, padL, padR, W, top, bottom: volTop + volH, lo, hi, priceH, fmt };
   drawLegend();
   drawCross();
@@ -2359,7 +2435,7 @@ function linePath(values, from, to, X, Y, cls) {
 }
 
 function drawCross() {
-  const g = chart.geo, el = $("chart-cross");
+  const g = chart.geo, el = cq("cross");
   if (!g || !el) return;
   if (chart.cursor == null) { el.innerHTML = ""; return; }
   const x = g.X(chart.cursor.i);
@@ -2375,7 +2451,7 @@ function drawCross() {
 
 const WEEK = "일월화수목금토";
 function updateReadout() {
-  const d = chart.data, el = $("chart-read");
+  const d = chart.data, el = cq("read");
   if (!d || !el) return;
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const [o, h, l, c] = d.ohlc[i], prev = i ? d.ohlc[i - 1][3] : null;
@@ -2401,7 +2477,7 @@ const LEGEND_KEY = {
   "bb_lower": `<line x1="0" x2="18" y1="5" y2="5" class="ln l-bb"/>`,
 };
 function drawLegend() {
-  const d = chart.data, el = $("chart-legend");
+  const d = chart.data, el = cq("legend");
   if (!d || !el) return;
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const p = (v) => chartPrice(v, d);
@@ -2423,7 +2499,9 @@ function moveCursor(i, y = null) {
   chart.cursor = { i: next, y };
   drawCross(); updateReadout();
 }
-$("chart-body").addEventListener("pointermove", (e) => {
+function bindChartPointer(root) {
+root.addEventListener("pointermove", (e) => {
+  if (chart.root !== root) return;
   const g = chart.geo, svg = e.target.closest(".cplot svg");
   if (!g || !svg) return;
   const r = svg.getBoundingClientRect();
@@ -2431,11 +2509,12 @@ $("chart-body").addEventListener("pointermove", (e) => {
   if (x > g.W - g.padR) return;
   moveCursor(g.start + Math.floor((x - g.padL) / g.bw), y);
 });
-$("chart-body").addEventListener("pointerleave", (e) => {
-  if (!chart.geo || e.target.id !== "chart-plot") return;  // 차트 밖으로 나갈 때만 (안쪽 요소 사이 이동은 무시)
+root.addEventListener("pointerleave", (e) => {
+  if (chart.root !== root || !chart.geo || e.target.dataset?.c !== "plot") return;  // 차트 밖으로 나갈 때만 (안쪽 요소 사이 이동은 무시)
   chart.cursor = null; drawCross(); updateReadout();
 }, true);
-$("chart-body").addEventListener("keydown", (e) => {
+root.addEventListener("keydown", (e) => {
+  if (chart.root !== root) return;
   const g = chart.geo;
   if (!g || !e.target.closest(".cplot svg")) return;
   const i = chart.cursor?.i ?? g.n - 1;
@@ -2444,7 +2523,9 @@ $("chart-body").addEventListener("keydown", (e) => {
   e.preventDefault();
   moveCursor(moves[e.key]);
 });
-new ResizeObserver(() => { if ($("chart").open && chart.data) drawChart(); }).observe($("chart-body"));
+new ResizeObserver(() => { if (chart.root === root && chart.data && root.offsetParent) drawChart(); }).observe(root);
+}
+bindChartRoot($("chart-body")); bindChartPointer($("chart-body"));
 
 /* ── 시장 지표 띠 ─────────────────────── */
 const ticker = { keys: "", last: {} };
@@ -2536,6 +2617,123 @@ async function loadTicker() {
 loadTicker();
 setInterval(loadTicker, 30000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) loadTicker(); });
+
+/* ── 검색 탭 ──────────────────────────── */
+const search = { items: [], active: -1, timer: null, current: null, chart: null, req: 0, recent: loadRecent() };
+function loadRecent() { try { return JSON.parse(localStorage.getItem("searchRecent") || "[]").slice(0, 8); } catch { return []; } }
+function saveRecent() { try { localStorage.setItem("searchRecent", JSON.stringify(search.recent)); } catch {} }
+const MARKET_LABEL = { KRX: "국내", US: "미국" };
+function enterSearch() {
+  renderRecent();
+  if (search.chart && chart.root !== $("search-chart") && !$("chart").open) mountChart($("search-chart"), search.chart.meta, search.chart.data);
+  if (!search.current && search.recent[0]) selectStock(search.recent[0]);  // 지난번에 본 종목을 다시 연다
+  else if (!search.current && matchMedia("(pointer: fine)").matches) $("search-q").focus();
+}
+function renderRecent() {
+  $("search-recent").innerHTML = search.recent.length
+    ? search.recent.map((r, i) => `<button type="button" data-recent="${i}">${esc(r.name)}</button>`).join("") : "";
+}
+$("search-recent").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-recent]"); if (b) selectStock(search.recent[Number(b.dataset.recent)]);
+});
+function renderSuggestions() {
+  const ul = $("search-sug"), q = $("search-q");
+  const open = q.value.trim() !== "" && document.activeElement === q;
+  ul.hidden = !open; q.setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  ul.innerHTML = search.items.length ? search.items.map((r, i) => `<li role="option" id="sug-${i}" data-sug="${i}" aria-selected="${i === search.active}">
+      <b>${esc(r.name)}</b><span>${esc(r.symbol)} · ${MARKET_LABEL[r.market]}</span></li>`).join("")
+    : `<li class="none" role="option" aria-disabled="true">찾는 종목이 없어요</li>`;
+  q.setAttribute("aria-activedescendant", search.active >= 0 ? `sug-${search.active}` : "");
+}
+$("search-q").addEventListener("input", () => {
+  clearTimeout(search.timer);
+  const q = $("search-q").value.trim();
+  if (!q) { search.items = []; renderSuggestions(); return; }
+  search.timer = setTimeout(async () => {
+    const req = ++search.req;
+    try {
+      const d = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      if (req !== search.req) return;
+      search.items = d.items; search.active = d.items.length ? 0 : -1; renderSuggestions();
+    } catch (e) { toast(`검색하지 못했어요: ${e.message}`, "error"); }
+  }, 150);
+});
+$("search-q").addEventListener("keydown", (e) => {
+  const n = search.items.length;
+  if (e.key === "ArrowDown" && n) { e.preventDefault(); search.active = (search.active + 1) % n; renderSuggestions(); }
+  else if (e.key === "ArrowUp" && n) { e.preventDefault(); search.active = (search.active - 1 + n) % n; renderSuggestions(); }
+  else if (e.key === "Enter" && search.active >= 0) { e.preventDefault(); selectStock(search.items[search.active]); }
+  else if (e.key === "Escape") { $("search-q").blur(); }
+});
+$("search-q").addEventListener("focus", renderSuggestions);
+$("search-q").addEventListener("blur", () => setTimeout(renderSuggestions, 150));  // 목록을 누르는 동안은 닫지 않는다
+$("search-sug").addEventListener("mousedown", (e) => {
+  const li = e.target.closest("[data-sug]"); if (!li) return;
+  e.preventDefault();
+  selectStock(search.items[Number(li.dataset.sug)]);
+});
+
+async function selectStock(item) {
+  if (!item) return;
+  const name = item.name.replace(/ 직접 조회$/, "");
+  const meta = { market: item.market, symbol: item.symbol, name };
+  search.current = meta;
+  search.recent = [meta, ...search.recent.filter((r) => !(r.market === meta.market && r.symbol === meta.symbol))].slice(0, 8);
+  saveRecent(); renderRecent();
+  $("search-q").value = ""; search.items = []; $("search-q").blur(); renderSuggestions();
+  $("search-empty").hidden = true; $("search-res").hidden = false;
+  $("search-head").innerHTML = `<h2>${esc(name)}</h2><span class="sym">${esc(meta.symbol)} · ${MARKET_LABEL[meta.market]}</span>`;
+  $("search-pat").innerHTML = ""; $("search-ai").innerHTML = ""; $("search-ai-at").textContent = "";
+  $("search-analyze").querySelector(".t").textContent = "AI 분석하기";
+  const view = api(`/api/stock?market=${meta.market}&symbol=${encodeURIComponent(meta.symbol)}`).catch(() => null);
+  search.chart = null;
+  const data = await loadChartInto($("search-chart"), meta);
+  if (search.current !== meta) return;
+  if (data) search.chart = { meta, data };
+  const v = await view;
+  if (search.current !== meta || !v) return;
+  renderStockView(meta, v);
+}
+function renderStockView(meta, v) {
+  const held = v.positions || [];
+  $("search-head").innerHTML = `<h2>${esc(meta.name)}</h2><span class="sym">${esc(meta.symbol)} · ${MARKET_LABEL[meta.market]}</span>${
+    held.map((p) => `<span class="held">${esc(p.account)} ${qty(p.quantity)}주 보유 · ${pct(p.pnl_pct, 1)}</span>`).join("")}`;
+  if (held[0]?.avg_cost != null && search.chart) {  // 평단선을 차트에 그린다
+    search.chart.meta = { ...meta, avg: held[0].avg_cost };
+    if (chart.root === $("search-chart")) { chart.meta = search.chart.meta; drawChart(); updateReadout(); }
+  }
+  const f = (x, u = "%") => x == null ? "-" : `${x > 0 ? "+" : ""}${x.toFixed(1)}${u}`;
+  $("search-pat").innerHTML = (v.patterns || []).map((h) => `<div class="spat"><b>${esc(h.label)} <span class="quiet">${h.date.slice(5).replace("-", "/")} 신호</span></b>
+      ${esc(h.description)}.<br>${h.stats
+        ? `과거 ${h.stats.count.toLocaleString("ko-KR")}번, ${h.days}일 뒤 평균 ${f(h.stats.mean)} · 지수 대비 평균 ${f(h.stats.excess_mean, "%p")}, 중간값 ${f(h.stats.excess_median, "%p")} · 지수를 이긴 비율 ${h.stats.beat_rate.toFixed(0)}% · <span class="${h.stats.proven ? "ok" : ""}">${h.stats.proven ? "꾸준히 통함" : "꾸준하지 않음"}</span>`
+        : "과거 성과는 주간 발굴을 한 번 돌린 뒤에 보여요."}</div>`).join("");
+  renderStockAnalysis(v.analysis);
+}
+function renderStockAnalysis(a) {
+  $("search-ai").innerHTML = a ? markdown(a.markdown) : `<p class="quiet">아직 분석한 적이 없어요. AI가 뉴스·실적·밸류에이션을 찾아보고 차트·패턴과 함께 분석해요.</p>`;
+  $("search-ai-at").textContent = a ? `${new Date(a.created_at).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })} 분석` : "";
+  search.hasAnalysis = Boolean(a);
+  $("search-analyze").querySelector(".t").textContent = a ? "다시 분석" : "AI 분석하기";
+}
+$("search-analyze").addEventListener("click", async () => {
+  const meta = search.current; if (!meta) return;
+  const btn = $("search-analyze");
+  busy(btn, true, "분석 중 (1~3분)");
+  $("search-ai").innerHTML = `<p class="quiet"><span class="spin"></span> AI가 뉴스와 실적을 찾아보며 ${esc(meta.name)}을(를) 분석하는 중이에요. 1~3분 걸려요.</p>`;
+  try {
+    const a = await api("/api/stock/analyze", { method: "POST", body: JSON.stringify({ market: meta.market, symbol: meta.symbol, name: meta.name }) });
+    if (search.current === meta) renderStockAnalysis(a);
+    toast(`${meta.name} 분석을 마쳤어요`);
+  } catch (e) {
+    toast(`분석하지 못했어요: ${e.message}`, "error");
+    if (search.current === meta) $("search-ai").innerHTML = `<p class="quiet">분석하지 못했어요: ${esc(e.message)}</p>`;
+  } finally {
+    busy(btn, false);
+    btn.querySelector(".t").textContent = search.hasAnalysis ? "다시 분석" : "AI 분석하기";
+  }
+});
+bindChartRoot($("search-chart")); bindChartPointer($("search-chart"));
 </script>
 </body>
 </html>

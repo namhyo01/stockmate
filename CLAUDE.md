@@ -30,16 +30,17 @@ src/stockmate/
   history.py       발굴용 5년 일봉(data/candles/, 하루 한 번 갱신)과 조사 대상 목록(코스피200·코스닥150·국내 ETF 80·S&P500+나스닥100·미국 ETF 40, 레버리지·인버스 제외)
   patterns.py      발굴용 차트 패턴 10개(그날까지 데이터만 사용) + 백테스트(지수 대비 평균·중간값·이긴 비율·앞뒤 절반)
   discovery.py     매주 토요일 8시 종목 발굴(웹 서버 스레드, `stock discover`): 훑기 → 후보 → claude -p(웹 검색)가 3~5개 → Idea(source=weekly), 추천 성적표
-  symbols.py       질문 글에서 종목 찾기: 국내 종목·ETF 이름 목록(data/krx_names.json, 일주일 캐시), 미국 종목 한글 이름표, DB 종목명. 두 글자 이름은 잘 알려진 것만
+  symbols.py       질문 글에서 종목 찾기 + 검색 탭 자동완성(미국 약 7,000종목 data/us_names.json): 국내 종목·ETF 이름 목록(data/krx_names.json, 일주일 캐시), 미국 종목 한글 이름표, DB 종목명. 두 글자 이름은 잘 알려진 것만
   technical.py     일봉(FDR·yfinance, 30분 캐시) → 이동평균·일목균형표·RSI·MACD·볼린저·거래량·캔들 패턴 계산 → 프롬프트용 차트 요약 (AI는 해석만)
   markets.py       화면 위 시장 지표 띠(/api/markets, 20초 캐시): 네이버 증권(코스피·코스닥·미국 지수·니케이·환율·미국 10년물, 지연 없음) + yfinance(비트코인)
+  research.py      검색 탭: 종목의 지금 걸린 발굴 패턴과 과거 성과, claude -p(웹 검색) 종목 분석 → data/research/, 대화 기록에도 남김
   analysis.py      claude -p 실행 (분석 리포트, 질문 답변)
   screenshots.py   스크린샷 → claude -p(도구 없음, JSON 스키마)로 화면 값 읽기 → 평단 역산·티커 검증·잔고 비교 → 반영
   memory.py        투자자 프로필, 추천 기록, 대화 기록 → 프롬프트용 기억
   ideas.py         AI 추천 종목: ```ideas 블록(JSON 배열) → Idea (이유·리스크·겹침·출처, 추천 때 가격 대비 변화)
   plans.py         매매 계획: Claude 응답의 ```actions 블록(add/done/cancel) → PlanItem, 계획 탭용 조건 충족 여부
   web/app.py       FastAPI (JSON API + 정적 페이지, WEB_PASSWORD 있으면 Basic 인증)
-  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 5개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #ai(대화, 예전 #claude), #analysis(리포트·기억). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")을 누르면 캔들 차트 창이 열린다(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, 아래에 AI가 받는 차트 요약)
+  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 6개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")을 누르면 캔들 차트 창이 열린다(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, 아래에 AI가 받는 차트 요약)
 data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_token.json, toss_token.json
 ```
 

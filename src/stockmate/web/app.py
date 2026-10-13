@@ -17,14 +17,17 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
-from stockmate import analysis, discovery, ideas, importers, markets, memory, plans, portfolio, screenshots, sync, technical
+from stockmate import (
+    analysis, discovery, ideas, importers, markets, memory, plans, portfolio, research, screenshots, symbols, sync, technical,
+)
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
 from stockmate.config import settings
 from stockmate.db import session_scope
 from stockmate.market_data import CachedPrices, MarketDataError
-from stockmate.models import Account, Market
+from stockmate.models import Account, Instrument, Market
 from stockmate.portfolio import PortfolioError
 from stockmate.report import build_snapshot
 from stockmate.web.snapshots import SnapshotStore
@@ -66,6 +69,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # (한투 시세 29종목 ≈ 3초, 초당 20건 제한 안쪽)
     snapshots.keep_warm(active=timedelta(minutes=5), busy_every=20, idle_every=600)
     weekly.schedule()  # 매주 토요일 오전 8시 종목 발굴
+    # 검색 탭의 종목 목록(국내 약 4,000, 미국 약 7,000)을 미리 받아 둔다 (처음이면 30초쯤 걸린다)
+    threading.Thread(target=lambda: (symbols.krx_names(), symbols.us_names()), daemon=True).start()
     yield
 
 
@@ -276,6 +281,41 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
         if ideas.set_status(session, idea_id, body.status) is None:
             raise HTTPException(404, "추천을 찾을 수 없어요.")
     return get_ideas()
+
+
+# ── 검색 탭 ───────────────────────────────────────
+
+
+@app.get("/api/search")
+def search_symbols(q: str = Query(min_length=1, max_length=40)) -> dict[str, Any]:
+    with session_scope() as session:
+        known = [(i.market, i.symbol, i.name) for i in session.scalars(select(Instrument))]
+    return {"items": symbols.search(q, known)}
+
+
+@app.get("/api/stock")
+def get_stock(market: Market, symbol: str = Query(min_length=1, max_length=20)) -> dict[str, Any]:
+    """검색 탭의 종목 화면: 지금 걸린 발굴 패턴과 과거 성과, 내 보유, 지난 AI 분석."""
+    return research.view(_snapshot(), market, portfolio.normalize_symbol(symbol))
+
+
+class StockQuery(BaseModel):
+    market: Market
+    symbol: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=100)
+
+
+@app.post("/api/stock/analyze")
+def analyze_stock(body: StockQuery) -> dict[str, Any]:
+    """AI가 종목 하나를 분석한다 (1~3분, 웹 검색). AI 질문과 같은 자리를 쓰므로 한 번에 하나만."""
+    if not _ask_lock.acquire(blocking=False):
+        raise HTTPException(409, "AI가 다른 질문이나 분석을 처리하는 중이에요. 잠시 후 다시 시도하세요.")
+    try:
+        return research.analyze(_snapshot(), body.market, portfolio.normalize_symbol(body.symbol), body.name)
+    except analysis.AnalysisError as e:
+        raise HTTPException(502, str(e)) from None
+    finally:
+        _ask_lock.release()
 
 
 # ── 시장 지표 띠 ──────────────────────────────────

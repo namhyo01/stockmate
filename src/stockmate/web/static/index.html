@@ -159,6 +159,10 @@ button { cursor: pointer; }
 .perf-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .perf-head h2 { margin: 0; }
 .perf-head .quiet { font-size: 13px; }
+.perf-head .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--sunken); border-radius: 999px; }
+.perf-head .seg .tab { padding: 4px 11px; font-size: 13px; }
+.perf-head .seg .tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.perf-grid.loading { opacity: .55; transition: opacity .15s; }
 .perf-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr) 300px; gap: 14px; align-items: stretch; }
 .perf-grid > div { background: var(--surface); border-radius: 14px; padding: 16px 18px; min-width: 0; }
 .perf-big { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; }
@@ -888,13 +892,15 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
   </div>
 
   <section class="perf" id="perf" hidden>
-    <div class="perf-head"><h2>이번 주 성과</h2><span class="quiet" id="perf-range"></span></div>
+    <div class="perf-head"><h2>기간 성과</h2>
+      <div class="seg" role="group" aria-label="기간" id="perf-days"></div>
+      <span class="quiet" id="perf-range"></span></div>
     <div class="perf-grid">
       <div class="perf-main" id="perf-main"></div>
       <div class="perf-chart" id="perf-chart"></div>
       <div class="perf-movers" id="perf-movers"></div>
     </div>
-    <p class="perf-note">지금 보유 수량 × 그날 종가·환율로 계산했어요 (현금 제외). 이 기간에 사고판 종목과 넣고 뺀 돈은 반영되지 않아요.</p>
+    <p class="perf-note" id="perf-note"></p>
   </section>
 
   <section>
@@ -3179,25 +3185,48 @@ $("plansheet-save").addEventListener("click", async () => {
 });
 
 /* ── 이번 주 성과 (포트폴리오 탭) ──────────────── */
-const perf = { data: null, at: 0 };
+const PERF_DAYS = [[7, "1주"], [30, "1개월"], [91, "3개월"], [365, "1년"]];
+const perf = { data: null, days: Number(loadPref("perfDays", "7")) || 7, cache: {} };
+$("perf-days").innerHTML = PERF_DAYS.map(([d, label]) => `<button type="button" class="tab" data-pdays="${d}" aria-pressed="${d === perf.days}">${label}</button>`).join("");
+$("perf-days").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pdays]"); if (!b) return;
+  perf.days = Number(b.dataset.pdays);
+  try { localStorage.setItem("perfDays", String(perf.days)); } catch {}
+  $("perf-days").querySelectorAll("[data-pdays]").forEach((x) => x.setAttribute("aria-pressed", String(Number(x.dataset.pdays) === perf.days)));
+  loadPerf();
+});
 async function loadPerf(force = false) {
-  if (!force && Date.now() - perf.at < 5 * 60_000) return;  // 일봉 기준이라 5분에 한 번이면 충분하다
-  perf.at = Date.now();
-  try { perf.data = await api("/api/performance/week"); renderPerf(); } catch { /* 성과 카드는 없어도 된다 */ }
+  const days = perf.days, hit = perf.cache[days];
+  if (hit && (perf.data = hit.data)) renderPerf();  // 받아 둔 게 있으면 먼저 그린다
+  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return;  // 일봉 기준이라 5분에 한 번이면 충분하다
+  perf.cache[days] = { at: Date.now(), data: hit?.data };
+  document.querySelector(".perf-grid").classList.add("loading");
+  try {
+    const d = await api(`/api/performance?days=${days}`);
+    perf.cache[days] = { at: Date.now(), data: d };
+    if (perf.days === days) { perf.data = d; renderPerf(); }
+  } catch { /* 성과 카드는 없어도 된다 */ }
+  finally { if (perf.days === days) document.querySelector(".perf-grid").classList.remove("loading"); }
 }
 function renderPerf() {
   const w = perf.data; if (!w || !w.daily.length) return;
   $("perf").hidden = false;
   const md = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]})`; };
-  $("perf-range").textContent = `${md(w.from)} 마감 → 지금`;
+  const fromYear = w.from.slice(0, 4), thisYear = w.to.slice(0, 4);
+  $("perf-range").textContent = `${fromYear !== thisYear ? `${fromYear}년 ` : ""}${md(w.from)} 마감 → 지금`;
+  $("perf-note").textContent = (w.days <= 7
+    ? "지금 보유 수량 × 그날 종가·환율로 계산했어요 (현금 제외). 이 기간에 사고판 종목과 넣고 뺀 돈은 반영되지 않아요."
+    : "지금 가진 수량을 기간 내내 들고 있었다고 보고 계산했어요 (현금 제외). 실제로 산 날·가격과 다를 수 있어서, 내 실제 수익률은 '평단 기준' 줄을 보세요.")
+    + (w.skipped.length ? ` 그때 상장 전이거나 일봉이 없어 뺀 종목: ${w.skipped.join(", ")}` : "");
   const t = w.total;
   const acctId = (name) => state.data?.accounts.find((a) => a.name === name)?.id || 1;
   const bench = (k, label) => w.benchmarks[k] == null ? "" : `<div><span>${label}</span><b class="${tone(w.benchmarks[k])}">${pct(w.benchmarks[k], 1)}</b></div>`;
   const gap = (k) => w.benchmarks[k] == null || t.pct == null ? null : t.pct - w.benchmarks[k];
   $("perf-main").innerHTML = `<div class="perf-big ${tone(t.change)}">${signed(t.change)}원</div>
     <div class="perf-pct ${tone(t.pct)}">${pct(t.pct)}</div>
-    <div class="perf-sub">주식 평가금 ${man(t.base)}원 → ${man(t.now)}원</div>
-    <div class="perf-cmp">${bench("kospi", "코스피 200 (KODEX 200)")}${bench("sp500", "S&amp;P 500 (SPY)")}
+    <div class="perf-sub">주식 평가금 ${man(t.base)}원 → ${man(t.now)}원${state.data?.total?.pnl_pct != null
+      ? `<br>평단 기준 전체 수익률 <b class="${tone(state.data.total.pnl_pct)}">${pct(state.data.total.pnl_pct)}</b>` : ""}</div>
+    <div class="perf-cmp"><div class="quiet" style="font-size:12px">같은 기간 지수</div>${bench("kospi", "코스피 200 (KODEX 200)")}${bench("sp500", "S&amp;P 500 (SPY)")}
       ${gap("kospi") != null ? `<div><span>코스피 200보다</span><b class="${tone(gap("kospi"))}">${gap("kospi") > 0 ? "+" : "−"}${Math.abs(gap("kospi")).toFixed(1)}%p</b></div>` : ""}</div>
     <div class="perf-acct">${w.accounts.map((a) => `<div><span style="--c:${acctColor(acctId(a.account))}"><i></i>${esc(a.account)}</span>
       <b class="${tone(a.change)}">${signed(a.change, man)}원 (${pct(a.pct, 1)})</b></div>`).join("")}</div>`;
@@ -3209,12 +3238,16 @@ function renderPerf() {
   const cls = tone(t.change);
   const pts = vals.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   const area = `M${X(0)},${H - bottom} L${pts.replaceAll(" ", " L")} L${X(vals.length - 1)},${H - bottom} Z`;
+  const n = vals.length, few = n <= 31, step = Math.max(1, Math.round((n - 1) / 5));  // 기간이 길면 점은 끝에만, 날짜는 6개쯤
+  const hitW = Math.max(4, (W - padL - padR) / Math.max(1, n - 1));
   const dots = w.daily.map((d, i) => {
     const prev = i ? vals[i - 1] : null, ch = prev == null ? null : d.value - prev;
-    const tip = `<b>${md(d.date)}${d.live ? " 지금" : " 마감"}</b>\n${won(d.value)}원${ch == null ? "" : `\n전날보다 ${signed(ch)}원 (${pct((d.value / prev - 1) * 100)})`}`;
-    return `<circle class="pt ${cls}" cx="${X(i)}" cy="${Y(d.value)}" r="${d.live ? 4.5 : 3.5}"/>
-      <rect class="hit" x="${X(i) - 16}" y="${top - 8}" width="32" height="${H - top}" data-tip="${esc(tip)}"/>
-      <text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === vals.length - 1 ? "end" : "middle"}">${d.live ? "지금" : md(d.date).replace(/\(.\)/, "")}</text>`;
+    const fromBase = (d.value / vals[0] - 1) * 100;
+    const tip = `<b>${md(d.date)}${d.live ? " 지금" : " 마감"}</b>\n${won(d.value)}원${ch == null ? "" : `\n전날보다 ${signed(ch)}원 (${pct((d.value / prev - 1) * 100)})`}${i ? `\n기간 처음보다 ${pct(fromBase)}` : ""}`;
+    const label = i === n - 1 ? "지금" : (few || i % step === 0) && n - 1 - i >= step / 2 ? md(d.date).replace(/\(.\)/, "") : "";
+    return `${few || i === n - 1 ? `<circle class="pt ${cls}" cx="${X(i)}" cy="${Y(d.value)}" r="${d.live ? 4.5 : 3.5}"/>` : ""}
+      <rect class="hit" x="${X(i) - hitW / 2}" y="${top - 8}" width="${hitW}" height="${H - top}" data-tip="${esc(tip)}"/>
+      ${label ? `<text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${label}</text>` : ""}`;
   }).join("");
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="지난 7일 주식 평가금 ${man(t.base)}원에서 ${man(t.now)}원">
     <line class="gl" x1="${padL}" x2="${W - padR}" y1="${Y(t.base)}" y2="${Y(t.base)}" stroke-dasharray="3 3"/>

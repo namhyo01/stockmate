@@ -1,4 +1,4 @@
-"""기간 성과 (지금은 일주일): 지금 보유 종목이 지난 기간 동안 얼마나 움직였는지.
+"""기간 성과 (1주·1개월·3개월·1년): 지금 보유 종목이 지난 기간 동안 얼마나 움직였는지.
 
 날마다의 자산 기록이 아직 없으므로 '지금 보유 수량 × 그날 종가 × 그날 환율'로 거꾸로 계산한다.
 그래서 그 기간에 사거나 판 종목, 넣거나 뺀 현금은 반영되지 않는다 (화면에도 밝힌다). 현금은 빼고 주식 평가금만 본다.
@@ -32,9 +32,15 @@ def _closes(frame: pd.DataFrame, market: Market) -> pd.Series:
     return closes
 
 
+PERIODS = {7: "1주", 30: "1개월", 91: "3개월", 365: "1년"}
+
+
 def week(snapshot: dict[str, Any], days: int = 7, today: dt.date | None = None,
          source: technical.DailyCandles | None = None) -> dict[str, Any]:  # fmt: skip
-    """지난 days일 성과. 기준은 days일 전 마감 평가금, 끝은 지금 평가금(스냅샷)."""
+    """지난 days일 성과. 기준은 days일 전 마감 평가금, 끝은 지금 평가금(스냅샷).
+
+    기간이 길수록 '지금 가진 수량을 그때부터 들고 있었다면'에 가까워진다 (실제로 산 날·가격과 다르다).
+    """
     today = today or dt.date.today()
     base_day = today - dt.timedelta(days=days)
     positions = [p for p in snapshot.get("positions", []) if p.get("quantity") and p.get("value_krw") is not None]
@@ -77,12 +83,18 @@ def week(snapshot: dict[str, Any], days: int = 7, today: dt.date | None = None,
     # 날마다의 주식 평가금 (그래프용). 오늘은 지금 평가금, 나머지는 그날 마감 기준
     included = {(r["account"], r["symbol"]) for r in rows}
     counted = [p for p in positions if (p["account"], p["symbol"]) in included]
-    daily = []
-    for i in range(days, 0, -1):
-        day = today - dt.timedelta(days=i)
-        values = [value_on(p, day) for p in counted]
-        if all(v is not None for v in values):
-            daily.append({"date": day.isoformat(), "value": sum(values)})
+    calendar = pd.date_range(base_day, today - dt.timedelta(days=1), freq="D")
+    total_by_day = pd.Series(0.0, index=calendar)
+    fx_daily = fx.reindex(fx.index.union(calendar)).ffill().reindex(calendar) if fx is not None else None
+    for p in counted:  # 날마다 다시 찾지 않고 달력에 맞춰 한 번에 채운다 (1년이면 365일)
+        market = Market(p["market"])
+        closes = _closes(frames[(market, p["symbol"])], market)
+        price = closes.reindex(closes.index.union(calendar)).ffill().reindex(calendar)
+        value = p["quantity"] * price
+        if market is Market.US:
+            value = value * (fx_daily if fx_daily is not None else fx_now)
+        total_by_day = total_by_day + value
+    daily = [{"date": d.date().isoformat(), "value": float(v)} for d, v in total_by_day.items() if pd.notna(v)]
     daily.append({"date": today.isoformat(), "value": sum(r["now"] for r in rows), "live": True})
 
     benches = {}
@@ -98,6 +110,8 @@ def week(snapshot: dict[str, Any], days: int = 7, today: dt.date | None = None,
         accounts.setdefault(r["account"], []).append(r)
     ordered = sorted(rows, key=lambda r: r["change"])
     return {
+        "days": days,
+        "label": PERIODS.get(days, f"{days}일"),
         "from": base_day.isoformat(),
         "to": today.isoformat(),
         "total": total(rows),

@@ -29,3 +29,21 @@ def test_week_uses_current_quantity_and_shifts_us_by_a_day():
     assert [r["name"] for r in w["losers"]] == ["삼성전자"] and [r["name"] for r in w["gainers"]] == ["애플"]
     assert w["daily"][0]["date"] == "2026-10-08" and w["daily"][-1]["live"]
     assert w["accounts"][0]["account"] == "토스" and w["skipped"] == []
+
+
+def test_longer_period_and_listing_after_base_is_skipped():
+    today = dt.date(2026, 10, 15)
+    frames = {
+        (Market.KRX, "005930"): frame([100.0 + i for i in range(60)], "2026-08-17"),
+        (Market.KRX, "0091C0"): frame([10.0] * 5, "2026-10-11"),  # 최근 상장: 30일 전 가격이 없다
+        performance.FX_KEY: frame([1000.0] * 60, "2026-08-17"),
+    }
+    source = technical.DailyCandles(lambda m, s: frames.get((m, s)))
+    snapshot = {"fx": {"USD": 1000.0}, "positions": [
+        {"account": "토스", "name": "삼성전자", "symbol": "005930", "market": "KRX", "quantity": 1, "value_krw": 159.0},
+        {"account": "한투", "name": "새 ETF", "symbol": "0091C0", "market": "KRX", "quantity": 1, "value_krw": 10.0},
+    ]}  # fmt: skip
+    w = performance.week(snapshot, days=30, today=today, source=source)
+    assert w["label"] == "1개월" and w["skipped"] == ["새 ETF"]
+    assert len(w["daily"]) == 31 and w["daily"][0]["date"] == "2026-09-15"
+    assert w["total"]["base"] == 100 + 29  # 9/15 종가

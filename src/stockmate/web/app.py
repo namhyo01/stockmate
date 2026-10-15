@@ -307,10 +307,12 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
 # ── 기간 성과 ─────────────────────────────────────
 
 
-@app.get("/api/performance/week")
-def get_week_performance() -> dict[str, Any]:
-    """지난 7일 성과: 지금 보유 수량 × 그날 종가·환율로 거꾸로 계산 (일봉 30분 캐시)."""
-    return performance.week(_snapshot())
+@app.get("/api/performance")
+def get_performance(days: int = 7) -> dict[str, Any]:
+    """기간 성과 (7·30·91·365일): 지금 보유 수량 × 그날 종가·환율로 거꾸로 계산 (일봉 30분 캐시)."""
+    if days not in performance.PERIODS:
+        raise HTTPException(400, "기간은 7, 30, 91, 365일 중 하나예요.")
+    return performance.week(_snapshot(), days=days)
 
 
 # ── 검색 탭 ───────────────────────────────────────

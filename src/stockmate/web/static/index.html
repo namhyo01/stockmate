@@ -154,6 +154,43 @@ button { cursor: pointer; }
 .spin { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── 이번 주 성과 ─────────────── */
+.perf { margin-top: 26px; }
+.perf-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.perf-head h2 { margin: 0; }
+.perf-head .quiet { font-size: 13px; }
+.perf-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr) 300px; gap: 14px; align-items: stretch; }
+.perf-grid > div { background: var(--surface); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.perf-big { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; }
+.perf-pct { font-size: 15px; font-weight: 700; margin: 2px 0 10px; }
+.perf-sub { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
+.perf-cmp { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); padding-top: 10px; border-top: 1px solid var(--line); }
+.perf-cmp div, .perf-acct div { display: flex; justify-content: space-between; gap: 10px; }
+.perf-cmp b, .perf-acct b { font-weight: 700; }
+.perf-acct { display: grid; gap: 4px; font-size: 13px; padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--line); }
+.perf-acct span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.perf-acct i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); }
+.perf-chart svg { display: block; width: 100%; height: 190px; overflow: visible; }
+.perf-chart .ax { fill: var(--ink-3); font-size: 11px; }
+.perf-chart .gl { stroke: var(--line); }
+.perf-chart .pl { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.perf-chart .pl.up { stroke: var(--up); } .perf-chart .pl.down { stroke: var(--down); } .perf-chart .pl.flat { stroke: var(--ink-3); }
+.perf-chart .pa.up { fill: color-mix(in srgb, var(--up) 10%, transparent); } .perf-chart .pa.down { fill: color-mix(in srgb, var(--down) 10%, transparent); } .perf-chart .pa.flat { fill: none; }
+.perf-chart .pt { fill: var(--surface); stroke-width: 2; }
+.perf-chart .pt.up { stroke: var(--up); } .perf-chart .pt.down { stroke: var(--down); } .perf-chart .pt.flat { stroke: var(--ink-3); }
+.perf-chart .hit { fill: transparent; cursor: default; }
+.perf-chart .vl { fill: var(--ink-2); font-size: 11.5px; font-weight: 650; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.perf-chart .vl.strong { fill: var(--ink); font-weight: 750; }
+.perf-movers h4 { margin: 0 0 6px; font-size: 12.5px; color: var(--ink-3); font-weight: 700; }
+.perf-movers h4:not(:first-child) { margin-top: 12px; }
+.perf-movers .mv { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 3px 0; }
+.perf-movers .mv span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-movers .mv b { font-weight: 700; white-space: nowrap; }
+.perf-movers .mv small { font-size: 12px; margin-left: 6px; }
+.perf-note { margin: 8px 2px 0; font-size: 12px; color: var(--ink-3); }
+@media (max-width: 1000px) { .perf-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .perf-chart { grid-column: 1 / -1; order: -1; } }
+@media (max-width: 640px) { .perf-grid { grid-template-columns: minmax(0, 1fr); } }
+
 /* ── 히어로: 요약 + 주식 지도 ─────────────── */
 .hero { display: grid; grid-template-columns: 300px 1fr; gap: 28px; padding: 18px 0 8px; align-items: stretch; }
 .summary { display: flex; flex-direction: column; }
@@ -850,6 +887,16 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     </div>
   </div>
 
+  <section class="perf" id="perf" hidden>
+    <div class="perf-head"><h2>이번 주 성과</h2><span class="quiet" id="perf-range"></span></div>
+    <div class="perf-grid">
+      <div class="perf-main" id="perf-main"></div>
+      <div class="perf-chart" id="perf-chart"></div>
+      <div class="perf-movers" id="perf-movers"></div>
+    </div>
+    <p class="perf-note">지금 보유 수량 × 그날 종가·환율로 계산했어요 (현금 제외). 이 기간에 사고판 종목과 넣고 뺀 돈은 반영되지 않아요.</p>
+  </section>
+
   <section>
     <h2>계좌</h2>
     <div class="ledger" id="ledger"></div>
@@ -1147,6 +1194,7 @@ function renderMap(data) {
 
 /* ── 렌더 ─────────────────────────────── */
 function render(data) {
+  if (state.view === "portfolio" || !state.view) setTimeout(() => loadPerf());  // 5분에 한 번만 실제로 받는다
   // 직전 화면과 비교해서 바뀐 가격을 기억해 두었다가 그 칸만 깜빡인다
   const before = state.data && new Map(state.data.positions.map((p) => [`${p.account_id}:${p.symbol}`, p.price]));
   state.flash = new Map();
@@ -2051,6 +2099,7 @@ function showView(view) {
   document.querySelectorAll(".views [data-view]").forEach((a) => a.setAttribute("aria-selected", String(a.dataset.view === view)));
   if (!changed) return;
   if (view === "portfolio" && state.data) renderMap(state.data);  // 숨겨져 있던 동안은 지도 크기를 잴 수 없었다
+  if (view === "portfolio") setTimeout(() => (perf.data ? renderPerf() : null, loadPerf()));
   if (view === "plans") loadPlans();
   if (view === "ideas") { loadIdeas(); loadDiscovery(); }
   if (view === "search") setTimeout(enterSearch);  // 처음 열 때는 검색 코드(아래쪽)가 준비된 뒤에
@@ -3128,6 +3177,55 @@ $("plansheet-save").addEventListener("click", async () => {
   } catch (e) { toast(`담지 못했어요: ${e.message}`, "error"); }
   finally { busy(btn, false); }
 });
+
+/* ── 이번 주 성과 (포트폴리오 탭) ──────────────── */
+const perf = { data: null, at: 0 };
+async function loadPerf(force = false) {
+  if (!force && Date.now() - perf.at < 5 * 60_000) return;  // 일봉 기준이라 5분에 한 번이면 충분하다
+  perf.at = Date.now();
+  try { perf.data = await api("/api/performance/week"); renderPerf(); } catch { /* 성과 카드는 없어도 된다 */ }
+}
+function renderPerf() {
+  const w = perf.data; if (!w || !w.daily.length) return;
+  $("perf").hidden = false;
+  const md = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]})`; };
+  $("perf-range").textContent = `${md(w.from)} 마감 → 지금`;
+  const t = w.total;
+  const acctId = (name) => state.data?.accounts.find((a) => a.name === name)?.id || 1;
+  const bench = (k, label) => w.benchmarks[k] == null ? "" : `<div><span>${label}</span><b class="${tone(w.benchmarks[k])}">${pct(w.benchmarks[k], 1)}</b></div>`;
+  const gap = (k) => w.benchmarks[k] == null || t.pct == null ? null : t.pct - w.benchmarks[k];
+  $("perf-main").innerHTML = `<div class="perf-big ${tone(t.change)}">${signed(t.change)}원</div>
+    <div class="perf-pct ${tone(t.pct)}">${pct(t.pct)}</div>
+    <div class="perf-sub">주식 평가금 ${man(t.base)}원 → ${man(t.now)}원</div>
+    <div class="perf-cmp">${bench("kospi", "코스피 200 (KODEX 200)")}${bench("sp500", "S&amp;P 500 (SPY)")}
+      ${gap("kospi") != null ? `<div><span>코스피 200보다</span><b class="${tone(gap("kospi"))}">${gap("kospi") > 0 ? "+" : "−"}${Math.abs(gap("kospi")).toFixed(1)}%p</b></div>` : ""}</div>
+    <div class="perf-acct">${w.accounts.map((a) => `<div><span style="--c:${acctColor(acctId(a.account))}"><i></i>${esc(a.account)}</span>
+      <b class="${tone(a.change)}">${signed(a.change, man)}원 (${pct(a.pct, 1)})</b></div>`).join("")}</div>`;
+  // 날마다 주식 평가금: 선 하나 + 점 (점에 마우스를 올리면 그날 값과 전날 대비)
+  const el = $("perf-chart"), W = el.clientWidth - 36 || 400, H = 190, padL = 6, padR = 6, top = 14, bottom = 24;
+  const vals = w.daily.map((d) => d.value), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || hi * 0.01;
+  const X = (i) => padL + (i / Math.max(1, vals.length - 1)) * (W - padL - padR);
+  const Y = (v) => top + (1 - (v - lo) / span) * (H - top - bottom);
+  const cls = tone(t.change);
+  const pts = vals.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const area = `M${X(0)},${H - bottom} L${pts.replaceAll(" ", " L")} L${X(vals.length - 1)},${H - bottom} Z`;
+  const dots = w.daily.map((d, i) => {
+    const prev = i ? vals[i - 1] : null, ch = prev == null ? null : d.value - prev;
+    const tip = `<b>${md(d.date)}${d.live ? " 지금" : " 마감"}</b>\n${won(d.value)}원${ch == null ? "" : `\n전날보다 ${signed(ch)}원 (${pct((d.value / prev - 1) * 100)})`}`;
+    return `<circle class="pt ${cls}" cx="${X(i)}" cy="${Y(d.value)}" r="${d.live ? 4.5 : 3.5}"/>
+      <rect class="hit" x="${X(i) - 16}" y="${top - 8}" width="32" height="${H - top}" data-tip="${esc(tip)}"/>
+      <text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === vals.length - 1 ? "end" : "middle"}">${d.live ? "지금" : md(d.date).replace(/\(.\)/, "")}</text>`;
+  }).join("");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="지난 7일 주식 평가금 ${man(t.base)}원에서 ${man(t.now)}원">
+    <line class="gl" x1="${padL}" x2="${W - padR}" y1="${Y(t.base)}" y2="${Y(t.base)}" stroke-dasharray="3 3"/>
+    <path class="pa ${cls}" d="${area}"/><polyline class="pl ${cls}" points="${pts}"/>${dots}
+    <text class="vl" x="${X(0)}" y="${Math.max(11, Y(vals[0]) - 9)}">${man(vals[0])}</text>
+    <text class="vl strong" x="${X(vals.length - 1)}" y="${Math.max(11, Y(vals.at(-1)) - 9)}" text-anchor="end">${man(vals.at(-1))}</text></svg>`;
+  const row = (r) => `<div class="mv"><span title="${esc(r.account)}">${esc(r.name)}</span><b class="${tone(r.change)}">${signed(r.change, man)}원<small>${pct(r.pct, 1)}</small></b></div>`;
+  $("perf-movers").innerHTML = `<h4>많이 오른 종목</h4>${w.gainers.slice(0, 4).map(row).join("") || `<div class="mv quiet">없어요</div>`}
+    <h4>많이 내린 종목</h4>${w.losers.slice(0, 4).map(row).join("") || `<div class="mv quiet">없어요</div>`}`;
+}
+addEventListener("resize", () => { if (perf.data && state.view === "portfolio") renderPerf(); });
 </script>
 </body>
 </html>

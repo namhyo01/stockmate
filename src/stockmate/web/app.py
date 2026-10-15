@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from stockmate import (
-    analysis, discovery, ideas, importers, markets, memory, plans, portfolio, research, screenshots, symbols, sync, technical,
+    analysis, discovery, ideas, importers, markets, memory, performance, plans, portfolio, research, screenshots, symbols, sync,
+    technical,
 )
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
@@ -301,6 +302,15 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
         if ideas.set_status(session, idea_id, body.status) is None:
             raise HTTPException(404, "추천을 찾을 수 없어요.")
     return get_ideas()
+
+
+# ── 기간 성과 ─────────────────────────────────────
+
+
+@app.get("/api/performance/week")
+def get_week_performance() -> dict[str, Any]:
+    """지난 7일 성과: 지금 보유 수량 × 그날 종가·환율로 거꾸로 계산 (일봉 30분 캐시)."""
+    return performance.week(_snapshot())
 
 
 # ── 검색 탭 ───────────────────────────────────────

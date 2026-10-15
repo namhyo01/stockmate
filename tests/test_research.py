@@ -108,7 +108,8 @@ def test_levels_collects_research_idea_report_and_plans(tmp_path, monkeypatch):
     monkeypatch.setattr(research, "DIR", tmp_path)
     (tmp_path / "KRX_005380.json").write_text(json.dumps({
         "created_at": "2026-10-13T11:12:27", "markdown": "## 한 줄 결론\n**기다릴 자리**예요. 이유.",
-        "idea": {"entry_low": 300000, "entry_high": 305000, "stop": 295000, "target": 326750}}), encoding="utf-8")  # fmt: skip
+        "idea": {"entry_low": 300000, "entry_high": 305000, "stop": 295000, "target": 326750},
+        "plan": [{"side": "buy", "timing": "10/22 실적 뒤"}]}), encoding="utf-8")  # fmt: skip
     ideas.apply_ideas(session, [{"name": "현대차", "symbol": "005380", "entry_high": 310000}], "chat", now=dt.datetime(2026, 10, 12, 9))
     session.add(Recommendation(analysis_at=dt.datetime(2026, 10, 10, 9), symbol="005380", opinion="보유", price=D(320000),
                                watch_low=D(290000), watch_high=D(310000)))  # fmt: skip
@@ -118,6 +119,7 @@ def test_levels_collects_research_idea_report_and_plans(tmp_path, monkeypatch):
     lv = research.levels(session, Market.KRX, "005380", now=dt.datetime(2026, 10, 13, 12))
     assert [o["source"] for o in lv["opinions"]] == ["research", "idea", "report"]  # 최신순
     assert lv["opinions"][0]["verdict"] == "기다릴 자리" and lv["opinions"][0]["stop"] == 295000
+    assert lv["opinions"][0]["timing"] == "10/22 실적 뒤"  # 화면에 '조건'으로 같이 보여준다
     assert lv["opinions"][2]["watch_low"] == 290000
     assert [(p["side"], p["price_high"]) for p in lv["plans"]] == [("buy", 305000)]
     # 2주가 지난 리포트 의견은 빼고, 다른 종목 것은 섞이지 않는다

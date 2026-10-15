@@ -2414,8 +2414,9 @@ function aiPriceLines(d) {
   const main = lv.opinions.find((o) => o.entry_low != null || o.entry_high != null || o.stop != null || o.target != null);
   if (main) {
     const lo = main.entry_low ?? main.entry_high, hi = main.entry_high ?? main.entry_low;
-    if (lo != null) out.push(lo === hi ? { kind: "line", cls: "plan-buy", from: lo, text: `AI 매수가 ${p(lo)}` }
-      : { kind: "band", cls: "buy", from: Math.min(lo, hi), to: Math.max(lo, hi), text: `AI 매수 구간 ${p(Math.min(lo, hi))}~${p(Math.max(lo, hi))}` });
+    const word = chartAvgs().length ? "AI 추가 매수" : "AI 매수";  // 이미 가진 종목이면 '더 산다면'의 가격이다
+    if (lo != null) out.push(lo === hi ? { kind: "line", cls: "plan-buy", from: lo, text: `${word}가 ${p(lo)}` }
+      : { kind: "band", cls: "buy", from: Math.min(lo, hi), to: Math.max(lo, hi), text: `${word} 구간 ${p(Math.min(lo, hi))}~${p(Math.max(lo, hi))}` });
     if (main.stop != null) out.push({ kind: "line", cls: "stop", from: main.stop, text: `철회 기준 ${p(main.stop)}` });
     if (main.target != null) out.push({ kind: "line", cls: "target", from: main.target, text: `목표가 ${p(main.target)}` });
   } else {
@@ -2446,18 +2447,27 @@ function aiOpinion(d) {
     return days <= 0 ? `오늘 ${t.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}` : `${date} (${days}일 전)`;
   };
   const isOld = (iso) => !iso || new Date(iso).toDateString() !== new Date().toDateString();
+  const held = chartAvgs().length > 0;
+  // 지금 사라는 판단인가. 보유·기다릴 자리 등이면 가격이 구간 안이어도 '사라'고 보이지 않게 한다
+  const BUY_NOW = ["지금 사기 좋은 자리", "더 살 자리", "추가매수"];
+  const buyWord = held ? "추가 매수" : "사는";
   const zoneState = (o) => {
     const lo = o.entry_low ?? o.watch_low, hi = o.entry_high ?? o.watch_high;
     if (o.stop != null && now < o.stop) return `<span class="st down">지금 가격이 철회 기준 아래예요</span>`;
     if (lo == null && hi == null) return "";
-    if ((lo == null || now >= lo) && (hi == null || now <= hi)) return `<span class="st in">지금 가격이 사는 구간 안이에요</span>`;
-    if (hi != null && now > hi) return `<span class="st">사는 구간까지 ${((1 - hi / now) * 100).toFixed(1)}% 더 내려와야 해요</span>`;
-    return `<span class="st">사는 구간보다 ${((1 - now / lo) * 100).toFixed(1)}% 아래예요</span>`;
+    const zone = o.source === "report" ? "관심 가격대" : `${buyWord} 구간`;
+    if ((lo == null || now >= lo) && (hi == null || now <= hi)) {
+      if (o.verdict && !BUY_NOW.includes(o.verdict))
+        return `<span class="st">가격만 보면 ${zone} 안이지만, AI 판단은 '${esc(o.verdict)}'예요${o.timing ? `. 조건: ${esc(o.timing)}` : ". 조건을 먼저 확인하세요"}</span>`;
+      return `<span class="st in">지금 가격이 ${zone} 안이에요${o.timing ? ` · 조건: ${esc(o.timing)}` : ""}</span>`;
+    }
+    if (hi != null && now > hi) return `<span class="st">${zone}까지 ${((1 - hi / now) * 100).toFixed(1)}% 더 내려와야 해요</span>`;
+    return `<span class="st">${zone}보다 ${((1 - now / lo) * 100).toFixed(1)}% 아래예요</span>`;
   };
   const ops = lv.opinions.map((o) => {
     const parts = [];
     const lo = o.entry_low ?? o.watch_low, hi = o.entry_high ?? o.watch_high;
-    if (lo != null || hi != null) parts.push(`${o.source === "report" ? "관심 가격대" : "사는 가격대"} <b>${lo != null && hi != null && lo !== hi ? `${p(lo)}~${p(hi)}` : p(lo ?? hi)}</b>`);
+    if (lo != null || hi != null) parts.push(`${o.source === "report" ? "관심 가격대" : `${buyWord} 가격대`} <b>${lo != null && hi != null && lo !== hi ? `${p(lo)}~${p(hi)}` : p(lo ?? hi)}</b>`);
     if (o.stop != null) parts.push(`철회 기준 <b>${p(o.stop)}</b>`);
     if (o.target != null) parts.push(`목표가 <b>${p(o.target)}</b>`);
     const verdict = o.verdict || (o.horizon ? { swing: "스윙 추천", long: "장기 추천" }[o.horizon] : o.source === "idea" ? "추천" : "");

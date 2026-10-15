@@ -137,6 +137,8 @@ _PROMPT = """당신은 한국 개인 투자자의 투자 비서입니다. 오늘
 
 그 다음 맨 끝에 이 종목 하나의 추천 카드를 ideas 블록(JSON 배열, 항목 1개)으로 붙이세요. 사용자가 '추천 탭에 담기'를 누르면 그대로 담깁니다.
 사지 않는 게 낫다고 판단했어도 붙이되, summary에 그렇게 쓰세요. patterns에는 위 "지금 걸린 발굴 패턴"의 키를 쓰세요.
+- 이미 보유 중인 종목이면 entry_low·entry_high는 '추가로 산다면'의 가격입니다. 지금 바로 사라는 뜻이 아니면 summary 첫머리에 판단(보유 등)과 조건(예: 실적 확인 뒤)을 쓰세요.
+- stop은 entry_low보다 낮게 정하세요 (사는 가격대 안에서 바로 철회되지 않게).
 {ideas_guide}
 - patterns: 걸린 패턴 키 목록 (없으면 빈 배열)
 ```ideas
@@ -310,10 +312,12 @@ def levels(session, market: Market, symbol: str, now: dt.datetime | None = None)
     if record is not None:
         verdict, line = verdict_of(record.get("markdown", ""))
         card = record.get("idea") or {}
+        buy = next((p for p in record.get("plan") or [] if p.get("side") == "buy"), None)
         opinions.append({
             "source": "research", "label": "검색 탭 AI 분석", "at": record.get("created_at"), "verdict": verdict, "summary": line,
             "entry_low": _f(card.get("entry_low")), "entry_high": _f(card.get("entry_high")),
             "stop": _f(card.get("stop")), "target": _f(card.get("target")), "horizon": card.get("horizon"),
+            "timing": buy.get("timing") if buy else None,
         })  # fmt: skip
     for idea in ideas.active_ideas(session):
         if idea.symbol != symbol:

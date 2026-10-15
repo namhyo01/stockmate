@@ -443,11 +443,36 @@ def chart_series(frame: pd.DataFrame, market: Market, digits: int | None = None)
     }
 
 
-def chart_payload(market: Market, symbol: str, name: str | None = None, source: DailyCandles | None = None) -> dict[str, Any] | None:
-    """종목 하나의 차트 데이터와 지표 요약 (AI에게 넘기는 글과 같은 내용). 일봉이 없으면 None."""
+def with_live_price(frame: pd.DataFrame, market: Market, live: float | None, now: dt.datetime | None = None) -> pd.DataFrame:
+    """마지막 캔들이 그 시장의 오늘 캔들이면 종가를 지금 시세로 맞추고 고가·저가도 넓힌다.
+
+    일봉은 30분 동안 재사용하므로, 차트를 여는 순간의 가격과 어긋나지 않게 한다. 오늘 캔들이 아직 없으면 그대로 둔다.
+    """
+    if live is None or frame.empty:
+        return frame
+    zone, _ = _SESSION[market]
+    today = (now or dt.datetime.now(dt.UTC)).astimezone(zone).date()
+    last = frame.index[-1]
+    if last.date() != today:
+        return frame
+    frame = frame.astype(float)  # 복사본
+    frame.loc[last, "Close"] = live
+    frame.loc[last, "High"] = max(frame.loc[last, "High"], live)
+    frame.loc[last, "Low"] = min(frame.loc[last, "Low"], live)
+    return frame
+
+
+def chart_payload(
+    market: Market, symbol: str, name: str | None = None, source: DailyCandles | None = None, live: float | None = None
+) -> dict[str, Any] | None:
+    """종목 하나의 차트 데이터와 지표 요약 (AI에게 넘기는 글과 같은 내용). 일봉이 없으면 None.
+
+    live(지금 시세)를 주면 오늘 캔들을 그 값으로 맞춘 뒤 지표를 계산한다.
+    """
     frame = (source or candles).get([(market, symbol)]).get((market, symbol))
     if frame is None or frame.empty:
         return None
+    frame = with_live_price(frame, market, live)
     summary = summarize(frame, market)
     return {
         "symbol": symbol,
@@ -455,6 +480,8 @@ def chart_payload(market: Market, symbol: str, name: str | None = None, source: 
         "currency": market.currency,
         "summary": summary,
         "text": describe(name or symbol, symbol, market, summary) if summary else None,
+        "as_of": dt.datetime.now().isoformat(timespec="seconds"),
+        "live": live is not None and frame.index[-1].date() == dt.datetime.now(_SESSION[market][0]).date(),
         **chart_series(frame, market),
     }
 

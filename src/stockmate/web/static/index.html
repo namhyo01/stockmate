@@ -760,7 +760,9 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .lv-t.avg { fill: var(--ink-2); }
 .lv-t.buy, .lv-t.plan-buy { fill: var(--up); } .lv-t.stop, .lv-t.plan-sell { fill: var(--down); } .lv-t.target, .lv-t.watch { fill: var(--ink); }
 .cai { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--sunken); }
-.cai h4 { margin: 0 0 8px; font-size: 14px; }
+.cai-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.cai h4 { margin: 0; font-size: 14px; }
+.cai-op .src.old { color: var(--warn-ink); font-weight: 650; }
 .cai-op { display: grid; gap: 3px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
 .cai-op:first-of-type { border-top: 0; padding-top: 0; }
 .cai-op .src { font-size: 12px; color: var(--ink-3); }
@@ -1543,7 +1545,7 @@ async function syncAll({ silent = false } = {}) {
   const btn = $("refresh");
   if (!silent) busy(btn, true, "새로고침 중");
   try {
-    const res = await api("/api/refresh", { method: "POST" });
+    const res = await api(silent ? "/api/refresh" : "/api/refresh?force=true", { method: "POST" });
     state.lastSync = Date.now();
     render(res.snapshot);
     res.messages.filter((m) => !silent || m.level !== "success").forEach((m) => toast(m.text, m.level === "success" ? "info" : m.level));
@@ -1553,12 +1555,12 @@ async function syncAll({ silent = false } = {}) {
 }
 $("refresh").addEventListener("click", () => syncAll());
 
-// 화면이 보이는 동안 20초마다 시세를, 5분마다 한투 잔고까지 새로 가져온다.
+// 화면이 보이는 동안 20초마다 시세를, 1분마다 토스·한투 잔고까지 새로 가져온다.
 // 다른 탭에 있거나 폰 화면이 꺼져 있으면 쉬었다가, 다시 보이는 순간 바로 가져온다.
 function tick() {
   if (needsReload) reloadIfIdle();
   if (document.hidden || $("refresh").disabled) return;
-  if (Date.now() - state.lastSync > 5 * 60_000) syncAll({ silent: true }); else loadPrices();
+  if (Date.now() - state.lastSync > 60_000) syncAll({ silent: true }); else loadPrices();
   if (state.view === "plans" && !plan.busy) loadPlans();
 }
 setInterval(tick, 20_000);
@@ -2437,7 +2439,13 @@ function aiOpinion(d) {
   if (!lv) return "";
   const p = (v) => chartPrice(v, d);
   const now = d.ohlc.at(-1)[3];
-  const when = (iso) => iso ? new Date(iso).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : "";
+  const when = (iso) => {  // "10월 13일 (2일 전)" — 오늘 낸 의견이 아니면 며칠 전인지 같이 쓴다
+    if (!iso) return "";
+    const t = new Date(iso), days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86400000);
+    const date = t.toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+    return days <= 0 ? `오늘 ${t.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}` : `${date} (${days}일 전)`;
+  };
+  const isOld = (iso) => !iso || new Date(iso).toDateString() !== new Date().toDateString();
   const zoneState = (o) => {
     const lo = o.entry_low ?? o.watch_low, hi = o.entry_high ?? o.watch_high;
     if (o.stop != null && now < o.stop) return `<span class="st down">지금 가격이 철회 기준 아래예요</span>`;
@@ -2453,7 +2461,7 @@ function aiOpinion(d) {
     if (o.stop != null) parts.push(`철회 기준 <b>${p(o.stop)}</b>`);
     if (o.target != null) parts.push(`목표가 <b>${p(o.target)}</b>`);
     const verdict = o.verdict || (o.horizon ? { swing: "스윙 추천", long: "장기 추천" }[o.horizon] : o.source === "idea" ? "추천" : "");
-    return `<div class="cai-op"><span class="src">${esc(o.label)} · ${when(o.at)}</span>
+    return `<div class="cai-op"><span class="src${isOld(o.at) ? " old" : ""}">${esc(o.label)} · ${when(o.at)}</span>
       ${verdict ? `<span class="vd">${esc(verdict)}</span>` : ""}${o.summary ? `<span>${esc(o.summary)}</span>` : ""}
       ${parts.length ? `<span class="lv">${parts.join(" · ")}</span>` : ""}${zoneState(o)}</div>`;
   });
@@ -2461,7 +2469,14 @@ function aiOpinion(d) {
     <span>${pl.side === "buy" ? "매수" : "매도"} ${pl.quantity ? `${qty(pl.quantity)}주` : pl.amount_krw ? `${won(pl.amount_krw)}원` : ""}
     ${pl.price_low != null || pl.price_high != null ? ` · ${pl.price_low != null ? p(pl.price_low) : ""}~${pl.price_high != null ? p(pl.price_high) : ""}` : ""}${pl.timing ? ` · ${esc(pl.timing)}` : ""}</span></div>`);
   const body = ops.concat(plansHtml).join("");
-  return `<section class="cai"><h4>AI 의견과 가격선</h4>${body || `<p class="cai-empty">아직 이 종목에 대한 AI 의견이 없어요. <button type="button" class="btn sm" data-goto-search>검색 탭에서 AI 분석하기</button></p>`}</section>`;
+  const fresh = lv.opinions.some((o) => o.source === "research" && !isOld(o.at));
+  const busyHere = chart.analyzing === chart.meta?.symbol;
+  const btn = busyHere
+    ? `<button type="button" class="btn sm" disabled><span class="spin"></span> 분석 중 (1~3분)</button>`
+    : `<button type="button" class="btn sm${fresh ? "" : " ink"}" data-reanalyze title="AI가 뉴스·실적을 찾아보고 지금 차트로 다시 분석해요. 1~3분 걸려요.">${lv.opinions.length ? "오늘 기준으로 다시 분석" : "AI 분석하기"}</button>`;
+  return `<section class="cai"><div class="cai-h"><h4>AI 의견과 가격선</h4>${btn}</div>
+    ${busyHere ? `<p class="cai-empty">AI가 뉴스와 실적을 찾아보며 지금 시점으로 분석하는 중이에요. 다 되면 의견과 가격선이 바뀌어요.</p>` : ""}
+    ${body || (busyHere ? "" : `<p class="cai-empty">아직 이 종목에 대한 AI 의견이 없어요.</p>`)}</section>`;
 }
 
 // 서버가 AI에게 넘기는 차트 요약 글을 그대로 보여준다 ("- 항목: 내용" 줄들)
@@ -2675,7 +2690,8 @@ function updateReadout() {
   const day = new Date(d.dates[i] + "T00:00:00");
   const live = i === n - 1 && d.summary?.intraday;
   el.innerHTML = `<b class="${tone(chg)}">${p(c)}</b><span class="${tone(chg)}">${pct(chg)}</span>
-    <span>${d.dates[i].replaceAll("-", ".")}(${WEEK[day.getDay()]})${live ? " 장중" : ""}</span>
+    <span>${d.dates[i].replaceAll("-", ".")}(${WEEK[day.getDay()]})${live ? " 장중" : ""}${
+      i === n - 1 && d.live && d.as_of ? ` · ${new Date(d.as_of).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })} 시세` : ""}</span>
     <span><span class="k">시</span>${p(o)}</span><span><span class="k">고</span>${p(h)}</span><span><span class="k">저</span>${p(l)}</span>
     ${d.volume.some((v) => v > 0) ? `<span><span class="k">거래량</span>${man(d.volume[i])}</span>` : ""}`;
   drawLegend();
@@ -2747,6 +2763,22 @@ root.addEventListener("keydown", (e) => {
 new ResizeObserver(() => { if (chart.root === root && chart.data && root.offsetParent) drawChart(); }).observe(root);
 }
 bindChartRoot($("chart-body")); bindChartPointer($("chart-body"));
+// 차트 안 'AI 의견'의 다시 분석: 검색 탭 분석과 같은 API. 끝나면 가격선과 의견을 다시 그린다
+document.addEventListener("click", async (e) => {
+  if (!e.target.closest("[data-reanalyze]")) return;
+  if (chart.analyzing) return toast("AI가 다른 종목을 분석하는 중이에요. 끝난 뒤 다시 눌러 주세요", "error");
+  const meta = { ...chart.meta };
+  chart.analyzing = meta.symbol; renderChartShell();
+  try {
+    const a = await api("/api/stock/analyze", { method: "POST", body: JSON.stringify({ market: meta.market, symbol: meta.symbol, name: meta.name }) });
+    toast(`${meta.name}: 오늘 기준 AI 의견을 받았어요`);
+    if (search.current?.symbol === meta.symbol) renderStockAnalysis(a);
+  } catch (err) { toast(`분석하지 못했어요: ${err.message}`, "error"); }
+  finally {
+    chart.analyzing = null;
+    if (chart.meta?.symbol === meta.symbol) { renderChartShell(); refreshLevels(meta); }
+  }
+});
 document.addEventListener("click", (e) => {
   if (!e.target.closest("[data-goto-search]")) return;
   const meta = chart.meta;

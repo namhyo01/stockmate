@@ -182,3 +182,18 @@ def test_index_sparks_last_month():
     source = technical.DailyCandles(lambda m, s: frame if s in ("^KS11", "^GSPC") else None)
     sparks = technical.index_sparks(source=source)
     assert set(sparks) == {"kospi", "sp500"} and len(sparks["kospi"]) == 22 and sparks["kospi"][-1] == 299
+
+
+def test_with_live_price_patches_only_todays_candle():
+    seoul = dt.timezone(dt.timedelta(hours=9))
+    frame = make_frame([100.0] * 70)
+    last = frame.index[-1]
+    now = dt.datetime(last.year, last.month, last.day, 11, 0, tzinfo=seoul)
+    patched = technical.with_live_price(frame, Market.KRX, 120.0, now)
+    assert patched["Close"].iloc[-1] == 120 and patched["High"].iloc[-1] == 120
+    assert frame["Close"].iloc[-1] == 100  # 원래 일봉(캐시)은 건드리지 않는다
+    lower = technical.with_live_price(frame, Market.KRX, 90.0, now)
+    assert lower["Low"].iloc[-1] == 90 and lower["High"].iloc[-1] == frame["High"].iloc[-1]
+    next_day = now + dt.timedelta(days=1)
+    assert technical.with_live_price(frame, Market.KRX, 120.0, next_day) is frame  # 오늘 캔들이 없으면 그대로
+    assert technical.with_live_price(frame, Market.KRX, None, now) is frame

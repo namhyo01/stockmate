@@ -8,7 +8,7 @@ import secrets
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -114,9 +114,28 @@ def get_portfolio() -> dict[str, Any]:
     return _snapshot()
 
 
+_sync_lock = threading.Lock()
+_last_sync: datetime | None = None
+SYNC_MIN_GAP = timedelta(seconds=45)  # 화면이 1분마다 부르는데, 여러 기기가 열려 있어도 증권사 API는 그보다 자주 부르지 않는다
+
+
 @app.post("/api/refresh")
-def refresh() -> dict[str, Any]:
-    """API로 연결된 계좌를 동기화하고 시세·환율을 새로 가져온다."""
+def refresh(force: bool = False) -> dict[str, Any]:
+    """API로 연결된 계좌를 동기화하고 시세·환율을 새로 가져온다.
+
+    화면이 1분마다 자동으로 부른다. 다른 기기가 45초 안에 이미 동기화했으면 건너뛰고 스냅샷만 준다
+    (사용자가 '새로고침' 버튼을 누르면 force로 바로 한다). 동시에 두 번 돌지 않게 잠근다.
+    """
+    global _last_sync
+    with _sync_lock:
+        if not force and _last_sync and datetime.now() - _last_sync < SYNC_MIN_GAP:
+            return {"messages": [], "snapshot": _snapshot()}
+        result = _sync_accounts(fresh_prices=force)
+        _last_sync = datetime.now()
+        return result
+
+
+def _sync_accounts(fresh_prices: bool) -> dict[str, Any]:
     messages: list[dict[str, str]] = []
     syncers = [
         ("한국투자증권", sync.kis_configured, sync.sync_kis),
@@ -137,7 +156,8 @@ def refresh() -> dict[str, Any]:
                 messages += [{"level": "warning", "text": w} for w in result.warnings]
         except (KisError, TossError, PortfolioError) as e:
             messages.append({"level": "error", "text": f"{label} 동기화 실패: {e}"})
-    prices.invalidate()
+    if fresh_prices:  # 버튼을 눌렀을 때만 시세도 비운다 (자동 동기화는 15초 캐시를 그대로 쓴다)
+        prices.invalidate()
     return {"messages": messages, "snapshot": _snapshot(fresh=True)}
 
 
@@ -410,7 +430,11 @@ def get_index_chart(key: str) -> dict[str, Any]:
 def get_chart(market: Market, symbol: str = Query(min_length=1, max_length=20), name: str | None = None) -> dict[str, Any]:
     """종목의 일봉, 이동평균·일목균형표·볼린저, AI에게 넘기는 차트 요약."""
     symbol = portfolio.normalize_symbol(symbol)
-    payload = technical.chart_payload(market, symbol, name)
+    try:  # 차트를 여는 순간의 시세 (한투 시세 API, 15초 캐시)로 오늘 캔들을 맞춘다
+        live = prices.last_prices([(market, symbol)]).get((market, symbol))
+    except Exception:
+        live = None
+    payload = technical.chart_payload(market, symbol, name, live=float(live) if live is not None else None)
     if payload is None:
         raise HTTPException(404, "일봉을 가져오지 못했어요.")
     with session_scope() as session:

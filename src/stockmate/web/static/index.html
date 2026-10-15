@@ -790,6 +790,17 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .cplot .tag.avg rect { fill: var(--ink-2); } .tag.avg text { fill: var(--surface); }
 .cplot .tag.cur rect { fill: var(--ink); } .tag.cur text { fill: var(--surface); }
 .cplot .cross { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 2; }
+/* 최고가·최저가 표시 (일봉: 보이는 기간, 오늘: 그날) */
+.hl-ln { stroke: var(--ink-3); stroke-width: 1; }
+.hl-t { font-size: 11.5px; font-weight: 750; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.hl-t.hi { fill: var(--up); } .hl-t.lo { fill: var(--down); }
+.hl-t .hl-d { fill: var(--ink-3); font-weight: 600; }
+.hl-dot { stroke: var(--surface); stroke-width: 2; } .hl-dot.hi { fill: var(--up); } .hl-dot.lo { fill: var(--down); }
+/* 오늘 분봉 */
+.td-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+.td-line.t-up { stroke: var(--up); } .td-line.t-down { stroke: var(--down); } .td-line.t-flat { stroke: var(--ink-2); }
+.td-area { stroke: none; } .td-area.t-up { fill: color-mix(in srgb, var(--up) 9%, transparent); } .td-area.t-down { fill: color-mix(in srgb, var(--down) 9%, transparent); } .td-area.t-flat { fill: none; }
+.td-prev { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; }
 /* AI 가격선: 사는 구간(빨강 띠), 철회 기준(파랑 점선), 목표가(진한 점선), 계획 가격(얇은 선) */
 .lv-band.buy { fill: color-mix(in srgb, var(--up) 11%, transparent); }
 .lv-band.watch { fill: color-mix(in srgb, var(--ink-3) 12%, transparent); }
@@ -2348,7 +2359,7 @@ loadMemory();
 showView(viewFromHash());
 
 /* ── 차트 (일봉 캔들 + 이동평균·일목균형표·볼린저) ─────────────── */
-const CHART_RANGES = [[63, "3개월"], [126, "6개월"], [250, "1년"], [0, "전체"]];
+const CHART_RANGES = [[1, "오늘"], [63, "3개월"], [126, "6개월"], [250, "1년"], [0, "전체"]];  // 1 = 오늘 분봉
 const CHART_LAYERS = [["ai", "AI 가격선"], ["ma", "이동평균"], ["ichimoku", "일목균형표"], ["bb", "볼린저밴드"]];
 const CHART_LINES = [
   { k: "ma20", layer: "ma", label: "20일선" },
@@ -2430,8 +2441,8 @@ function renderChartShell() {
     <div class="ctool">
       <div class="seg" role="group" aria-label="기간">${CHART_RANGES.map(([n, label]) =>
         `<button type="button" class="tab" data-crange="${n}" aria-pressed="${chart.range === n}">${label}</button>`).join("")}</div>
-      <div class="seg" role="group" aria-label="지표">${CHART_LAYERS.map(([k, label]) =>
-        `<button type="button" class="tab" data-clayer="${k}" aria-pressed="${layerOn(k)}">${label}</button>`).join("")}</div>
+      ${chart.range === 1 ? "" : `<div class="seg" role="group" aria-label="지표">${CHART_LAYERS.map(([k, label]) =>
+        `<button type="button" class="tab" data-clayer="${k}" aria-pressed="${layerOn(k)}">${label}</button>`).join("")}</div>`}
     </div>
     <div class="cread" data-c="read" aria-live="off"></div>
     <div class="cplot" data-c="plot">${d ? "" : `<div class="loading"><span><span class="spin"></span> 일봉을 불러오는 중이에요</span></div>`}</div>
@@ -2445,8 +2456,10 @@ root.addEventListener("click", (e) => {
   if (chart.root !== root) return;
   const r = e.target.closest("[data-crange]");
   if (r) {
+    const was = chart.range;
     chart.range = Number(r.dataset.crange);
     try { localStorage.setItem("chartRange", String(chart.range)); } catch {}
+    if ((was === 1) !== (chart.range === 1)) { chart.cursor = null; return renderChartShell(); }  // 오늘 ↔ 일봉: 지표 버튼을 숨기거나 보인다
   }
   const l = e.target.closest("[data-clayer]");
   if (l) {
@@ -2563,6 +2576,7 @@ function niceStep(span, count) {
 function drawChart() {
   const d = chart.data, el = cq("plot");
   if (!d || !el) return;
+  if (chart.range === 1) return drawToday(el);
   const cur = d.currency, n = d.dates.length;
   const count = chart.range ? Math.min(chart.range, n) : n, start = n - count;
   const ich = layerOn("ichimoku"), ahead = ich ? CLOUD_SHIFT : 0;
@@ -2658,6 +2672,17 @@ function drawChart() {
     const y1 = Y(Math.max(o, c)), bh = Math.max(1, Y(Math.min(o, c)) - y1);
     out.push(`<rect class="${cls}" x="${(x - body / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${body.toFixed(1)}" height="${bh.toFixed(1)}"/>`);
   }
+  // 보이는 기간의 최고가·최저가: 그 캔들 위·아래에 가격을 적는다
+  let ih = start, il = start;
+  for (let i = start; i < n; i++) { if (d.ohlc[i][1] > d.ohlc[ih][1]) ih = i; if (d.ohlc[i][2] < d.ohlc[il][2]) il = i; }
+  const hlMark = (i, v, isHigh) => {
+    const x = X(i), y = Y(v), right = x > (padL + W - padR) / 2;
+    const dateText = d.dates[i].slice(2).replaceAll("-", ".");
+    out.push(`<line class="hl-ln" x1="${x}" x2="${right ? x - 12 : x + 12}" y1="${y}" y2="${y + (isHigh ? -10 : 10)}"/>
+      <text class="hl-t ${isHigh ? "hi" : "lo"}" x="${right ? x - 14 : x + 14}" y="${y + (isHigh ? -12 : 20)}" text-anchor="${right ? "end" : "start"}">${isHigh ? "최고" : "최저"} ${chartPrice(v, d)} <tspan class="hl-d">${dateText}</tspan></text>`);
+  };
+  if (n - start > 1) { hlMark(ih, d.ohlc[ih][1], true); hlMark(il, d.ohlc[il][2], false); }
+
   // 지표 선 (후행스팬은 오늘 종가를 25칸 앞에 그린 값이라 그대로 같은 자리에 그린다)
   lines.forEach((l) => out.push(linePath(d.lines[l.k], start, n, X, Y, `ln ${l.cls || `l-${l.k}`}`)));
 
@@ -2748,6 +2773,7 @@ const WEEK = "일월화수목금토";
 function updateReadout() {
   const d = chart.data, el = cq("read");
   if (!d || !el) return;
+  if (chart.range === 1) return todayReadout(el);
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const [o, h, l, c] = d.ohlc[i], prev = i ? d.ohlc[i - 1][3] : null;
   const chg = prev ? (c / prev - 1) * 100 : null;
@@ -2775,6 +2801,7 @@ const LEGEND_KEY = {
 function drawLegend() {
   const d = chart.data, el = cq("legend");
   if (!d || !el) return;
+  if (chart.range === 1) return todayLegend(el);
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const p = (v) => chartPrice(v, d);
   const items = CHART_LINES.filter((l) => layerOn(l.layer)).map((l) =>
@@ -3259,6 +3286,127 @@ function renderPerf() {
     <h4>많이 내린 종목</h4>${w.losers.slice(0, 4).map(row).join("") || `<div class="mv quiet">없어요</div>`}`;
 }
 addEventListener("resize", () => { if (perf.data && state.view === "portfolio") renderPerf(); });
+
+/* ── 차트 '오늘' 보기: 하루 1분봉, 최고·최저, 어제 종가 ─────────── */
+function todayKey() { return `${chart.meta.market}:${chart.meta.symbol}`; }
+function drawToday(el) {
+  const key = todayKey(), t = chart.today;
+  const fresh = t && t.key === key && Date.now() - t.at < 30_000;
+  if (!fresh && chart.todayLoading !== key) {
+    chart.todayLoading = key;
+    api(`/api/chart/today?market=${chart.meta.market}&symbol=${encodeURIComponent(chart.meta.symbol)}`)
+      .then((data) => { chart.today = { key, at: Date.now(), data }; })
+      .catch((e) => { chart.today = { key, at: Date.now(), error: e.message }; })
+      .finally(() => { chart.todayLoading = null; if (chart.range === 1 && chart.meta && todayKey() === key) { drawChart(); updateReadout(); } });
+  }
+  if (!t || t.key !== key) { el.innerHTML = `<div class="loading"><span><span class="spin"></span> 오늘 분봉을 불러오는 중이에요</span></div>`; chart.geo = null; return; }
+  if (t.error) { el.innerHTML = `<div class="loading">오늘 분봉을 가져오지 못했어요: ${esc(t.error)}</div>`; chart.geo = null; return; }
+  const td = t.data, pts = td.points, n = pts.length, d = chart.data;
+  const W = el.clientWidth, H = el.clientHeight, padL = 4, padR = 70, top = 22, axisH = 20;
+  const hasVol = chart.meta.market !== "INDEX" && pts.some((p) => p[2] > 0);  // 지수 분봉의 거래량은 믿을 수 없다
+  const volH = hasVol ? Math.round((H - top - axisH) * 0.16) : 0, gap = hasVol ? 10 : 0;
+  const priceH = H - top - axisH - volH - gap, volTop = top + priceH + gap;
+  let lo = td.low.price, hi = td.high.price;
+  if (td.prev_close != null) { lo = Math.min(lo, td.prev_close); hi = Math.max(hi, td.prev_close); }
+  const pad = (hi - lo) * 0.12 || hi * 0.005; lo -= pad; hi += pad;
+  const bw = (W - padL - padR) / Math.max(1, n);
+  const X = (i) => padL + (i + 0.5) * bw, Y = (v) => top + ((hi - v) / (hi - lo)) * priceH;
+  const fmt = (v) => d.currency === "INDEX" ? v.toLocaleString("en-US", { maximumFractionDigits: d.digits }) : d.currency === "USD" ? v.toFixed(2) : won(v);
+  const cls = tone(td.prev_close == null ? 0 : td.last - td.prev_close);
+  const out = [];
+  // 가격 눈금
+  const step = niceStep(hi - lo, 5);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    out.push(`<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}"/><text class="axis" x="${W - padR + 6}" y="${Y(v) + 4}">${fmt(v)}</text>`);
+  }
+  // 시간 눈금: 정각마다 (좁으면 건너뛴다)
+  let lastX = -99;
+  pts.forEach((p, i) => {
+    if (!p[0].endsWith(":00") || X(i) - lastX < 46) return;
+    lastX = X(i);
+    out.push(`<line class="grid" x1="${X(i)}" x2="${X(i)}" y1="${top}" y2="${volTop + volH}" opacity=".5"/><text class="axis" x="${X(i)}" y="${H - 5}" text-anchor="middle">${p[0].slice(0, 2)}시</text>`);
+  });
+  // 국내 정규장(09:00~15:30) 밖의 NXT 거래 시간은 옅게 칠한다
+  if (chart.meta.market === "KRX") {
+    const outside = (t) => t < "09:00" || t > "15:30";
+    let from = null;
+    pts.forEach((p, i) => {
+      const o = outside(p[0]);
+      if (o && from === null) from = i;
+      if ((!o || i === n - 1) && from !== null) {
+        const to = o ? i : i - 1;
+        out.push(`<rect class="future" x="${X(from) - bw / 2}" y="${top}" width="${(to - from + 1) * bw}" height="${priceH}"/>
+          <text class="future-label" x="${X(from) - bw / 2 + 6}" y="${top + 14}">NXT 거래</text>`);
+        from = null;
+      }
+    });
+  }
+  // 어제 종가 기준선
+  if (td.prev_close != null) {
+    out.push(`<line class="td-prev" x1="${padL}" x2="${W - padR}" y1="${Y(td.prev_close)}" y2="${Y(td.prev_close)}"/>
+      <text class="lv-t avg" x="${padL + 6}" y="${Y(td.prev_close) - 4}">어제 종가 ${chartPrice(td.prev_close, d)}</text>`);
+  }
+  // 평단 (보이는 범위 안에 있을 때만)
+  chartAvgs().filter(({ avg }) => avg > lo && avg < hi).forEach(({ account, avg }, _, all) => {
+    out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(avg)}" y2="${Y(avg)}"/>
+      <text class="lv-t avg" x="${W - padR - 6}" y="${Y(avg) - 4}" text-anchor="end">${all.length > 1 && account ? `${esc(account)} 평단` : "평단"} ${chartPrice(avg, d)}</text>`);
+  });
+  // 거래량
+  if (hasVol) {
+    const vmax = Math.max(...pts.map((p) => p[2])) || 1;
+    pts.forEach((p, i) => {
+      const h = (p[2] / vmax) * volH, up = i === 0 ? p[1] >= (td.prev_close ?? p[1]) : p[1] >= pts[i - 1][1];
+      out.push(`<rect class="vol ${up ? "up" : "down"}" x="${(X(i) - Math.max(bw * 0.35, 0.5)).toFixed(1)}" y="${(volTop + volH - h).toFixed(1)}" width="${Math.max(bw * 0.7, 1).toFixed(1)}" height="${h.toFixed(1)}"/>`);
+    });
+  }
+  // 가격 선과 면
+  const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" L");
+  const base = Y(td.prev_close ?? lo);
+  out.push(`<path class="td-area t-${cls}" d="M${X(0)},${base} L${line} L${X(n - 1)},${base} Z"/><path class="td-line t-${cls}" d="M${line}"/>`);
+  // 최고·최저
+  const iH = pts.findIndex((p) => p[0] === td.high.time && p[1] === td.high.price), iL = pts.findIndex((p) => p[0] === td.low.time && p[1] === td.low.price);
+  const mark = (i, v, time, isHigh) => {
+    if (i < 0) return;
+    const x = X(i), y = Y(v), right = x > (padL + W - padR) / 2;
+    out.push(`<circle class="hl-dot ${isHigh ? "hi" : "lo"}" cx="${x}" cy="${y}" r="3.5"/>
+      <text class="hl-t ${isHigh ? "hi" : "lo"}" x="${right ? x - 8 : x + 8}" y="${y + (isHigh ? -8 : 16)}" text-anchor="${right ? "end" : "start"}">${isHigh ? "최고" : "최저"} ${chartPrice(v, d)} <tspan class="hl-d">${time}</tspan></text>`);
+  };
+  mark(iH, td.high.price, td.high.time, true); mark(iL, td.low.price, td.low.time, false);
+  // 지금 값 표시
+  out.push(`<line class="ref ${cls === "down" ? "down" : "up"}" x1="${padL}" x2="${W - padR}" y1="${Y(td.last)}" y2="${Y(td.last)}"/>
+    <g class="tag ${cls === "down" ? "down" : "up"}"><rect class="${cls === "down" ? "down" : "up"}" x="${W - padR + 2}" y="${Y(td.last) - 8}" width="${padR - 4}" height="16"/><text x="${W - padR + 6}" y="${Y(td.last) + 4}">${fmt(td.last)}</text></g>`);
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(chart.meta.name)} 오늘 분봉 차트. 화살표 키로 시각을 옮겨요">
+    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
+  chart.geo = { start: 0, n, X, bw, padL, padR, W, top, bottom: volTop + volH, lo, hi, priceH, fmt, today: true };
+  drawCross();
+}
+function todayReadout(el) {
+  const t = chart.today, d = chart.data;
+  if (!t?.data || t.key !== todayKey()) { el.innerHTML = ""; return; }
+  const td = t.data, pts = td.points, i = Math.min(chart.cursor?.i ?? pts.length - 1, pts.length - 1), p = pts[i];
+  const chg = td.prev_close ? (p[1] / td.prev_close - 1) * 100 : null;
+  const day = new Date(td.date + "T00:00:00");
+  el.innerHTML = `<b class="${tone(chg)}">${chartPrice(p[1], d)}</b><span class="${tone(chg)}">${pct(chg)}</span>
+    <span>${chart.meta.market === "KRX" ? `${td.date.replaceAll("-", ".")}(${WEEK[day.getDay()]})` : `${td.date.slice(5).replace("-", "/")} 시작한 장`} ${p[0]}${i === pts.length - 1 ? " 기준" : ""}</span>
+    <span><span class="k">시</span>${chartPrice(td.open, d)}</span>
+    <span><span class="k">고</span><b class="up" style="font-size:inherit">${chartPrice(td.high.price, d)}</b> <span class="k">${td.high.time}</span></span>
+    <span><span class="k">저</span><b class="down" style="font-size:inherit">${chartPrice(td.low.price, d)}</b> <span class="k">${td.low.time}</span></span>
+    ${p[2] > 0 ? `<span><span class="k">그 분 거래량</span>${man(p[2])}</span>` : ""}`;
+  todayLegend(cq("legend"));
+}
+function todayLegend(el) {
+  const td = chart.today?.data, d = chart.data;
+  if (!el || !td) { if (el) el.innerHTML = ""; return; }
+  const items = [];
+  if (td.prev_close != null) items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="td-prev"/></svg>어제 종가 <b>${chartPrice(td.prev_close, d)}</b></span>`);
+  items.push(`<span>오늘 최고 <b class="up">${chartPrice(td.high.price, d)}</b> (${td.high.time})</span>`, `<span>오늘 최저 <b class="down">${chartPrice(td.low.price, d)}</b> (${td.low.time})</span>`);
+  const range = td.high.price - td.low.price;
+  items.push(`<span>하루 등락 폭 <b>${chartPrice(range, d)}</b> (${((range / td.low.price) * 100).toFixed(1)}%)</span>`);
+  const avgs = chartAvgs();
+  avgs.forEach(({ account, avg }) => items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>${avgs.length > 1 && account ? `${esc(account)} 평단` : "평단"} <b>${chartPrice(avg, d)}</b></span>`));
+  if (chart.meta.market === "US" || chart.meta.market === "INDEX") items.push(`<span class="quiet">시간은 한국 시간</span>`);
+  el.innerHTML = items.join("");
+}
 </script>
 </body>
 </html>

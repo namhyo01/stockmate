@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from stockmate import (
-    analysis, discovery, ideas, importers, markets, memory, performance, plans, portfolio, research, screenshots, symbols, sync,
-    technical,
+    analysis, discovery, ideas, importers, intraday, markets, memory, performance, plans, portfolio, research, screenshots,
+    symbols, sync, technical,
 )
 from stockmate.brokers.kis import KisError
 from stockmate.brokers.toss import TossError
@@ -426,6 +426,27 @@ def get_market_sparks() -> dict[str, Any]:
 
 
 # ── 차트 ───────────────────────────────────────────
+
+
+@app.get("/api/chart/today")
+def get_today_chart(market: str = Query(pattern="^(KRX|US|INDEX)$"), symbol: str = Query(min_length=1, max_length=20)) -> dict[str, Any]:
+    """차트의 '오늘' 보기: 마지막 거래일의 1분봉, 최고가·최저가, 어제 종가 (30초 캐시)."""
+    if market == "INDEX":
+        if symbol not in technical.INDEX_CHARTS:
+            raise HTTPException(404, "모르는 지표예요.")
+        data = intraday.today("INDEX", symbol, yf_ticker=technical.INDEX_CHARTS[symbol][0])
+    else:
+        symbol = portfolio.normalize_symbol(symbol)
+        data = intraday.today(market, symbol)
+        if data and market == Market.KRX.value:  # 어제 종가는 일봉에서: 분봉 날짜 바로 전 거래일 종가
+            frame = technical.candles.get([(Market.KRX, symbol)]).get((Market.KRX, symbol))
+            if frame is not None:
+                before = frame["Close"][frame.index < data["date"]]
+                if not before.empty:
+                    data = {**data, "prev_close": float(before.iloc[-1]), "change_pct": (data["last"] / float(before.iloc[-1]) - 1) * 100}
+    if data is None:
+        raise HTTPException(404, "오늘 분봉을 가져오지 못했어요.")
+    return data
 
 
 @app.get("/api/chart/index/{key}")

@@ -33,6 +33,7 @@ src/stockmate/
   discovery.py     매주 토요일 8시 종목 발굴(웹 서버 스레드, `stock discover`): 훑기 → 후보 → claude -p(웹 검색)가 3~5개 → Idea(source=weekly), 추천 성적표
   symbols.py       질문 글에서 종목 찾기 + 검색 탭 자동완성(미국 약 7,000종목 data/us_names.json): 국내 종목·ETF 이름 목록(data/krx_names.json, 일주일 캐시), 미국 종목 한글 이름표, DB 종목명. 두 글자 이름은 잘 알려진 것만
   technical.py     일봉(FDR·yfinance, 30분 캐시) → 이동평균·일목균형표·RSI·MACD·볼린저·거래량·캔들 패턴 계산 → 프롬프트용 차트 요약 (AI는 해석만)
+  intraday.py      차트 "오늘" 보기: 국내는 네이버 1분봉(지연 없음, NXT 포함), 미국·지표는 yfinance 1분봉, 30초 캐시. 최고·최저·어제 종가
   markets.py       화면 위 시장 지표 띠(/api/markets, 20초 캐시): 네이버 증권(코스피·코스닥·미국 지수·니케이·환율·미국 10년물, 지연 없음) + yfinance(비트코인)
   research.py      검색 탭: 종목의 지금 걸린 발굴 패턴과 과거 성과, claude -p(웹 검색) 종목 분석 → data/research/(추천 카드 포함), 대화 기록에도 남김. "추천 탭에 담기" → Idea(source=search), "계획 탭에 담기" → 초안(분석의 actions 블록, 예전 분석은 글에서 뽑음)을 사용자가 고친 뒤 PlanItem(source=search)
   analysis.py      claude -p 실행 (분석 리포트, 질문 답변)

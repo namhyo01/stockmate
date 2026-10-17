@@ -6,6 +6,7 @@ import base64
 import binascii
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -311,8 +312,15 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
 def get_performance(days: int = 7) -> dict[str, Any]:
     """기간 성과 (7·30·91·365일): 지금 보유 수량 × 그날 종가·환율로 거꾸로 계산 (일봉 30분 캐시)."""
     if days not in performance.PERIODS:
-        raise HTTPException(400, "기간은 7, 30, 91, 365일 중 하나예요.")
-    return performance.week(_snapshot(), days=days)
+        raise HTTPException(400, "기간은 1, 7, 30, 91, 365일 중 하나예요.")
+    snapshot = _snapshot()
+    if days == 1:  # 하루: 어제 종가 대비, 보유 종목 1분봉을 더한 곡선 (분봉은 종목마다 30초 캐시)
+        keys = {(p["market"], p["symbol"]) for p in snapshot["positions"]}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            minutes = dict(zip(keys, pool.map(lambda k: intraday.today(*k), keys)))
+        board = {q["key"]: q.get("change_pct") for q in markets.board.get()}
+        return performance.day(snapshot, minutes, {"kospi": board.get("kospi"), "sp500": board.get("sp500")})
+    return performance.week(snapshot, days=days)
 
 
 # ── 검색 탭 ───────────────────────────────────────

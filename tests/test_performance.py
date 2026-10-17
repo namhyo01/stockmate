@@ -47,3 +47,24 @@ def test_longer_period_and_listing_after_base_is_skipped():
     assert w["label"] == "1개월" and w["skipped"] == ["새 ETF"]
     assert len(w["daily"]) == 31 and w["daily"][0]["date"] == "2026-09-15"
     assert w["total"]["base"] == 100 + 29  # 9/15 종가
+
+
+def test_day_matches_dashboard_day_pnl_and_builds_curve():
+    snapshot = {"fx": {"USD": 1000.0}, "positions": [
+        {"account": "토스", "name": "삼성전자", "symbol": "005930", "market": "KRX", "quantity": 10, "value_krw": 2000.0,
+         "day_pnl_krw": -200.0, "prev_close": 220.0},
+        {"account": "토스", "name": "애플", "symbol": "AAPL", "market": "US", "quantity": 1, "value_krw": 11000.0,
+         "day_pnl_krw": 1000.0, "prev_close": 10.0},
+        {"account": "한투", "name": "모름", "symbol": "X", "market": "KRX", "quantity": 1, "value_krw": 5.0, "day_pnl_krw": None},
+    ]}  # fmt: skip
+    minutes = {
+        ("KRX", "005930"): {"points": [["09:00", 210.0, 1, "2026-10-16T09:00+09:00"], ["15:30", 200.0, 1, "2026-10-16T15:30+09:00"]]},
+        ("US", "AAPL"): {"points": [["22:30", 10.5, 1, "2026-10-16T22:30+09:00"], ["04:59", 11.0, 1, "2026-10-17T04:59+09:00"]]},
+    }
+    d = performance.day(snapshot, minutes, {"kospi": -1.0, "sp500": 0.5})
+    assert d["total"]["change"] == 800 and d["total"]["base"] == 2200 + 10000
+    assert d["skipped"] == ["모름"]
+    values = [p["value"] for p in d["daily"]]
+    # 어제 종가 → 국내 09:00(애플은 아직 어제 종가) → 15:30 → 미국 22:30 → 04:59 → 지금
+    assert values == [12200, 2100 + 10000, 2000 + 10000, 2000 + 10500, 2000 + 11000, 13000]
+    assert [r["name"] for r in d["gainers"]] == ["애플"] and d["daily"][0]["base"]

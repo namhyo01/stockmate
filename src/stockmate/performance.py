@@ -32,7 +32,7 @@ def _closes(frame: pd.DataFrame, market: Market) -> pd.Series:
     return closes
 
 
-PERIODS = {7: "1주", 30: "1개월", 91: "3개월", 365: "1년"}
+PERIODS = {1: "하루", 7: "1주", 30: "1개월", 91: "3개월", 365: "1년"}
 
 
 def week(snapshot: dict[str, Any], days: int = 7, today: dt.date | None = None,
@@ -118,6 +118,79 @@ def week(snapshot: dict[str, Any], days: int = 7, today: dt.date | None = None,
         "accounts": [{"account": a, **total(items)} for a, items in accounts.items()],
         "benchmarks": benches,
         "daily": daily,
+        "gainers": [r for r in reversed(ordered) if r["change"] > 0][:5],
+        "losers": [r for r in ordered if r["change"] < 0][:5],
+        "skipped": skipped,
+    }
+
+
+def day(snapshot: dict[str, Any], minutes: dict[tuple[str, str], dict[str, Any] | None],
+        benchmarks: dict[str, float | None]) -> dict[str, Any]:  # fmt: skip
+    """하루 성과: 어제 종가 대비 지금 (국내는 오늘 장, 미국은 지난밤 장). 대시보드의 '오늘' 숫자와 같다.
+
+    그래프는 종목별 1분봉(minutes: (시장, 종목) → intraday.today 결과)을 한국 시각에 맞춰 더한 하루 평가금이다.
+    분봉이 시작되기 전에는 어제 종가로, 끝난 뒤에는 마지막 가격으로 본다. 미국 종목은 지금 환율로 환산한다.
+    """
+    fx = (snapshot.get("fx") or {}).get("USD") or 0
+    positions = [p for p in snapshot.get("positions", [])
+                 if p.get("quantity") and p.get("value_krw") is not None and p.get("day_pnl_krw") is not None]  # fmt: skip
+    skipped = [p["name"] for p in snapshot.get("positions", []) if p.get("value_krw") is not None and p.get("day_pnl_krw") is None]
+    rows = []
+    for p in positions:
+        base = p["value_krw"] - p["day_pnl_krw"]
+        rows.append({
+            "account": p["account"], "name": p["name"], "symbol": p["symbol"], "market": p["market"],
+            "base": base, "now": p["value_krw"], "change": p["day_pnl_krw"],
+            "pct": (p["value_krw"] / base - 1) * 100 if base else None,
+        })  # fmt: skip
+
+    def total(items: list[dict[str, Any]]) -> dict[str, Any]:
+        base = sum(r["base"] for r in items)
+        now = sum(r["now"] for r in items)
+        return {"base": base, "now": now, "change": now - base, "pct": (now / base - 1) * 100 if base else None}
+
+    # 분봉을 한국 시각으로 모아 하루 평가금 곡선을 만든다
+    series = []  # (종목의 원화 환산 배율, 어제 종가, [(시각, 가격)])
+    times: set[str] = set()
+    for p in positions:
+        m = minutes.get((p["market"], p["symbol"]))
+        rate = fx if p["market"] == Market.US.value else 1
+        prev = p.get("prev_close")
+        pts = [(pt[3], pt[1]) for pt in (m or {}).get("points", []) if len(pt) > 3]
+        if prev is None:
+            continue
+        times.update(t for t, _ in pts)
+        series.append((p["quantity"] * rate, prev, pts))
+    timeline = sorted(times)
+    curve = []
+    if timeline:
+        idx = [0] * len(series)
+        last = [prev for _, prev, _ in series]
+        for t in timeline:
+            for k, (_, _, pts) in enumerate(series):
+                while idx[k] < len(pts) and pts[idx[k]][0] <= t:
+                    last[k] = pts[idx[k]][1]
+                    idx[k] += 1
+            curve.append({"t": t, "value": sum(mult * price for (mult, _, _), price in zip(series, last))})
+        step = max(1, len(curve) // 400)  # 그래프에는 400점 정도면 충분하다
+        curve = curve[::step] + ([curve[-1]] if (len(curve) - 1) % step else [])
+    now_total = sum(r["now"] for r in rows)
+    curve.insert(0, {"t": None, "value": sum(r["base"] for r in rows), "base": True})
+    curve.append({"t": dt.datetime.now().isoformat(timespec="minutes"), "value": now_total, "live": True})
+
+    accounts: dict[str, list] = {}
+    for r in rows:
+        accounts.setdefault(r["account"], []).append(r)
+    ordered = sorted(rows, key=lambda r: r["change"])
+    return {
+        "days": 1,
+        "label": PERIODS[1],
+        "from": None,
+        "to": dt.date.today().isoformat(),
+        "total": total(rows),
+        "accounts": [{"account": a, **total(items)} for a, items in accounts.items()],
+        "benchmarks": benchmarks,
+        "daily": curve,
         "gainers": [r for r in reversed(ordered) if r["change"] > 0][:5],
         "losers": [r for r in ordered if r["change"] < 0][:5],
         "skipped": skipped,

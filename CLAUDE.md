@@ -27,7 +27,7 @@ src/stockmate/
   sync.py          KIS·토스 동기화, 시세 제공자 선택 (KIS 우선, 실패 시 공개 데이터)
   importers.py     잔고 CSV 가져오기 (symbol,name,quantity,avg_cost,market)
   report.py        대시보드·분석 공용 스냅샷 dict, ETF 이름으로 실제 투자 지역 추정
-  performance.py   포트폴리오 탭 "이번 주 성과": 지금 보유 수량 × 지난 7일 종가·환율로 거꾸로 계산(현금·이번 주 매매 미반영), KODEX 200·SPY 비교
+  performance.py   포트폴리오 탭 "기간 성과"(하루·1주·1개월·3개월·1년): 하루는 대시보드 오늘 손익과 같고 보유 종목 1분봉을 더한 곡선, 나머지는 지금 보유 수량 × 그날 종가·환율로 거꾸로 계산(현금·기간 중 매매 미반영), KODEX 200·SPY 비교
   history.py       발굴용 5년 일봉(data/candles/, 하루 한 번 갱신)과 조사 대상 목록(코스피200·코스닥150·국내 ETF 80·S&P500+나스닥100·미국 ETF 40, 레버리지·인버스 제외)
   patterns.py      발굴용 차트 패턴 10개(그날까지 데이터만 사용) + 백테스트(지수 대비 평균·중간값·이긴 비율·앞뒤 절반)
   discovery.py     매주 토요일 8시 종목 발굴(웹 서버 스레드, `stock discover`): 훑기 → 후보 → claude -p(웹 검색)가 3~5개 → Idea(source=weekly), 추천 성적표

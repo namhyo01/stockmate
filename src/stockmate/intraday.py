@@ -74,7 +74,7 @@ def summarize(rows: list[tuple[dt.datetime, float, float]], prev_close: float | 
     last = rows[-1][1]
     return {
         "date": rows[0][0].date().isoformat(),
-        "points": [[r[0].strftime("%H:%M"), r[1], r[2]] for r in rows],
+        "points": [[r[0].strftime("%H:%M"), r[1], r[2], r[0].isoformat(timespec="minutes")] for r in rows],  # 시각, 가격, 거래량, 한국 시각
         "open": rows[0][1],
         "last": last,
         "high": {"time": hi[0].strftime("%H:%M"), "price": hi[1]},

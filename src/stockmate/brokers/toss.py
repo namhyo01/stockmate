@@ -201,7 +201,7 @@ def _explain(status: int, error: dict[str, Any], path: str) -> str:
     if status == 403 and code == "edge-blocked":
         return (
             "토스가 이 서버의 IP를 막았어요. 토스증권 WTS 설정 > Open API > 허용 IP 관리에 "
-            "서버 IP(<서버 공인 IP>)를 등록했는지 확인하세요."
+            "이 서버의 공인 IP를 등록했는지 확인하세요."
         )
     if code == "token-revoked":
         return (

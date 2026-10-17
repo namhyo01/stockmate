@@ -1,6 +1,9 @@
 # 비밀 정보와 개인 데이터 (절대 커밋 금지)
 .env
 data/
+# 개인 기록(인수인계 문서, 백업 등)과 이 컴퓨터만의 실행 환경 메모 (Claude Code가 자동으로 읽는다)
+private/
+CLAUDE.local.md
 *.db
 *.csv
 !samples/*.csv

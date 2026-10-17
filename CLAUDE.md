@@ -1,7 +1,8 @@
 # stockmate: 개인 투자 비서
 
 여러 증권사에 흩어진 주식 계좌를 한곳에 모으고, Claude가 분석해서 매매 판단을 돕는 **사용자 한 명 전용** 도구.
-사용자와는 **한국어**로 대화한다. 지금까지의 대화와 결정 배경은 `docs/HANDOFF.md`에 정리돼 있으니 먼저 읽는다.
+사용자와는 **한국어**로 대화한다. 이 컴퓨터만의 실행 환경(주소, 경로, IP 등)은 git에 올리지 않는 `CLAUDE.local.md`에,
+지금까지의 대화와 결정 배경은 `private/HANDOFF.md`에 있다 (둘 다 있으면 먼저 읽는다).
 
 ## 명령어
 
@@ -43,7 +44,8 @@ src/stockmate/
   plans.py         매매 계획: Claude 응답의 ```actions 블록(add/done/cancel) → PlanItem, 계획 탭용 조건 충족 여부
   web/app.py       FastAPI (JSON API + 정적 페이지, WEB_PASSWORD 있으면 Basic 인증)
   web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 6개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")을 누르면 캔들 차트 창이 열린다(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, "AI 가격선" 층: AI 매수 구간·철회 기준·목표가·리포트 관심 가격대·열린 계획 가격(`research.levels`), 아래에 "AI 의견과 가격선"과 AI가 받는 차트 요약)
-data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_token.json, toss_token.json
+data/              (git 제외) stockmate.db, memory/, analyses/, imports/, candles/, research/, discovery/, kis_token.json, toss_token.json
+private/           (git 제외) 개인 기록: HANDOFF.md, 백업
 ```
 
 ## 핵심 설계 결정 (바꾸기 전에 사용자와 상의)
@@ -69,24 +71,21 @@ data/              (git 제외) stockmate.db, memory/, analyses/, imports/, kis_
 | 한투 | ISA 중개형 서민형 | `stock sync kis` (웹에서 1분마다 자동, 여러 기기가 열려 있어도 45초 안에는 다시 하지 않는다) | 한투 시세 API |
 | 삼성연금 | 연금저축, 월 40만원 적립 | 웹 계좌 목록의 "스크린샷 올리기" (아직 비어 있음) | 한투 시세 API |
 
-**미국 종목 원화 원금**: `Holding.avg_fx`(매입 평균 환율)로 `수량 × 달러 평단 × avg_fx`를 계산해서 원화 손익에 환율 손익까지 넣는다(토스 앱 "원화 보기"와 같게). 토스 동기화 때 `portfolio.blend_avg_fx()`가 수량 변화에 맞춰 갱신한다(늘면 지금 환율로 가중평균, 같으면 원화 원금 보존, 줄면 비율대로). avg_fx가 없으면 현재 환율로 계산한다. 2026-10-02 첫 토스 API 동기화 때 9/30 스크린샷의 원화 매입금으로 초깃값을 넣었다.
+**미국 종목 원화 원금**: `Holding.avg_fx`(매입 평균 환율)로 `수량 × 달러 평단 × avg_fx`를 계산해서 원화 손익에 환율 손익까지 넣는다(토스 앱 "원화 보기"와 같게). 토스 동기화 때 `portfolio.blend_avg_fx()`가 수량 변화에 맞춰 갱신한다(늘면 지금 환율로 가중평균, 같으면 원화 원금 보존, 줄면 비율대로). avg_fx가 없으면 현재 환율로 계산한다. 처음 토스 API로 동기화할 때는 스크린샷의 원화 매입금으로 초깃값을 넣을 수 있다.
 
-**스크린샷 가져오기** (`screenshots.py`, 웹 `/api/screenshots/read` → `/apply`): 토스 보유 종목 화면(평가금, 원 보기)에는 평균단가가 없어서 `평균단가 = (평가금 − 손익) / 환율 / 수량`으로 역산한다(환율은 화면 값 우선). 화면 값으로 구한 현재가를 실제 시세와 비교해서 8% 넘게 다르면 티커를 의심한다. **MMF·CMA·RP 같은 현금성 상품은 종목이 아니라 예수금**으로 넣는다(사용자 원칙). 화면에 수량이 없으면(삼성 연금 잔고 화면) 평가금액 ÷ 지금 시세로 구하고(국내는 정수에 3% 안쪽일 때만) "추정"으로 표시한다. 미리보기에서 사람이 확인한 행만 반영하고, 화면에 없는 종목은 "지우기"를 체크했을 때만 지운다(화면 총 평가금과 합계가 맞을 때만 기본 체크). 올린 이미지와 읽은 결과는 `data/imports/screenshots/`에 남는다. CLI로 할 때는 CSV를 만들어 `stock import holdings 토스 <csv> --replace` (예시: `data/imports/toss_2026-09-30.csv`).
+**스크린샷 가져오기** (`screenshots.py`, 웹 `/api/screenshots/read` → `/apply`): 토스 보유 종목 화면(평가금, 원 보기)에는 평균단가가 없어서 `평균단가 = (평가금 − 손익) / 환율 / 수량`으로 역산한다(환율은 화면 값 우선). 화면 값으로 구한 현재가를 실제 시세와 비교해서 8% 넘게 다르면 티커를 의심한다. **MMF·CMA·RP 같은 현금성 상품은 종목이 아니라 예수금**으로 넣는다(사용자 원칙). 화면에 수량이 없으면(삼성 연금 잔고 화면) 평가금액 ÷ 지금 시세로 구하고(국내는 정수에 3% 안쪽일 때만) "추정"으로 표시한다. 미리보기에서 사람이 확인한 행만 반영하고, 화면에 없는 종목은 "지우기"를 체크했을 때만 지운다(화면 총 평가금과 합계가 맞을 때만 기본 체크). 올린 이미지와 읽은 결과는 `data/imports/screenshots/`에 남는다. CLI로 할 때는 CSV를 만들어 `stock import holdings 토스 <csv> --replace`.
 
-## 실행 환경 (맥 + Docker)
+## 실행 환경 (Docker)
 
-- 2026-10-09에 AWS에서 사용자의 맥 `<프로젝트 폴더>`로 옮겼다 (AWS는 2026-10-09에 삭제했다). 맥은 상시 켜져 있다.
-- **Docker 컨테이너 `stockmate`**로 상시 실행한다 (`compose.yaml`, `restart: unless-stopped`). 코드와 `data/`는 맥 폴더를 그대로 연결하므로, 코드를 고치면 `docker compose restart`, 의존성(pyproject)을 바꾸면 `docker compose up -d --build`.
-- **DB를 쓰는 CLI는 컨테이너 안에서**: `docker compose exec stockmate stock summary` (맥에서 직접 같은 SQLite를 열면 Docker 파일 공유를 사이에 둔 잠금 문제로 깨질 수 있다). 테스트(`uv run pytest`)는 맥에서 돌려도 된다 (메모리 DB).
-- 컨테이너의 `claude -p`는 `.env`의 `CLAUDE_CODE_OAUTH_TOKEN`(사용자가 `claude setup-token`으로 만든 구독 토큰)으로 인증한다.
-- SSH로 들어와서 docker를 쓸 때는 먼저 `source ~/.docker-ssh/env.sh` (SSH 세션은 키체인에 접근하지 못한다).
-- 대시보드: https://<서버>.<tailnet>.ts.net (맥의 `tailscale serve`: `/` → 8000, `/pickmap`·`:8443` → pickmap 8001). Tailscale 이름 `stockmate`가 이제 맥이다.
-- PC(WSL)의 `server` 리모트는 `stockmate:<프로젝트 폴더>` (`receive.denyCurrentBranch=updateInstead`). PC에서 고쳤다면 `git push server master` 뒤 맥에서 `docker compose restart`.
+- **Docker 컨테이너 `stockmate`**로 상시 실행한다 (`compose.yaml`, `restart: unless-stopped`). 코드와 `data/`는 호스트 폴더를 그대로 연결하므로, 코드를 고치면 `docker compose restart`, 의존성(pyproject)을 바꾸면 `docker compose up -d --build`.
+- **DB를 쓰는 CLI는 컨테이너 안에서**: `docker compose exec stockmate stock summary` (호스트에서 같은 SQLite를 직접 열면 Docker 파일 공유를 사이에 둔 잠금 문제로 깨질 수 있다). 테스트(`uv run pytest`)는 호스트에서 돌려도 된다 (메모리 DB).
+- 컨테이너의 `claude -p`는 `.env`의 `CLAUDE_CODE_OAUTH_TOKEN`(`claude setup-token`으로 만든 구독 토큰)으로 인증한다.
+- 대시보드는 `127.0.0.1:8000`에만 열린다. 밖에서 볼 때는 Tailscale(`tailscale serve`) 같은 사설망으로만 연다 (공개 인터넷에 직접 열지 않는다. 열어야 하면 `WEB_PASSWORD` 필수).
 - 로그: `docker compose logs -f stockmate`
 
 ## 주의사항
 
-- 토스: 토스 개발자 콘솔에 등록한 허용 IP에서만 호출된다. 지금은 집 공인 IP(<집 공인 IP>)가 등록돼 있어서 맥에서 호출된다 (예전 AWS Elastic IP <서버 공인 IP>도 있었음). **집 IP가 바뀌면 토스 콘솔에서 다시 등록해야 한다**. 토큰은 키당 1개만 유효해서 새로 받으면 이전 토큰이 즉시 무효가 된다 → `data/toss_token.json`에 캐시하고, 같은 키를 다른 곳(LLM 연동 등)에서 쓰지 않는다.
+- 토스: 토스 개발자 콘솔에 등록한 허용 IP에서만 호출된다. **서버의 공인 IP가 바뀌면 토스 콘솔에서 다시 등록해야 한다**. 토큰은 키당 1개만 유효해서 새로 받으면 이전 토큰이 즉시 무효가 된다 → `data/toss_token.json`에 캐시하고, 같은 키를 다른 곳(LLM 연동 등)에서 쓰지 않는다.
 - KIS: 초당 20건 제한(코드에서 0.1초 간격 + EGW00201 재시도). 토큰 발급은 1분에 1번이라 `data/kis_token.json`에 캐시한다. **키를 재발급하면 이 파일을 지워야 한다.** 미국 종목의 거래소 코드는 `data/kis_exchanges.json`에 캐시한다.
 - 실행 시간대는 **Asia/Seoul**이어야 한다 (Dockerfile에서 TZ를 지정했다) (`datetime.now()`를 곳곳에서 쓴다). SQLite `func.now()` 기본값은 UTC라는 점도 주의.
 - `CachedPrices`는 여러 요청 스레드가 공유한다. 상태를 바꿀 때는 반드시 잠금 안에서 한다 (예전에 가격이 전부 빈칸이 되는 경쟁 조건 버그가 있었다).

@@ -1,79 +1,99 @@
 # 📈 stockmate
 
-여러 증권사(한국투자, 토스, 삼성 등)에 흩어진 주식 계좌를 한곳에 모아 관리하고,
-AI로 분석해서 매수·매도 타이밍을 제안하는 **개인용** 투자 비서.
+여러 증권사(한국투자증권, 토스증권, 삼성증권 등)에 흩어진 주식 계좌를 한 화면에 모으고,
+**Claude Code 구독**으로 AI가 차트·뉴스·포트폴리오를 함께 보고 매매 판단을 돕는 개인용 투자 비서입니다.
 
-> 분석 결과는 참고용이며, 매매 판단과 책임은 본인에게 있습니다. 자동 주문 기능은 없습니다.
+> 분석 결과는 참고용이며, 매매 판단과 책임은 본인에게 있습니다. **주문 기능은 일부러 만들지 않았습니다.**
+
+## 무엇을 하나요
+
+**포트폴리오**
+- 한국투자증권·토스증권 Open API로 잔고와 예수금을 1분마다 동기화 (조회 전용)
+- API가 없는 계좌(예: 삼성증권 연금저축)는 앱 **스크린샷을 올리면 AI가 읽어서** 잔고를 맞춤 (미리보기에서 확인 후 반영)
+- 원화 환산 손익(미국 주식은 매입 평균 환율까지 반영), 계좌·지역별 비중, 수익률 색으로 칠한 주식 지도
+- 기간 성과(하루·1주·1개월·3개월·1년)와 지수 비교, 많이 오르고 내린 종목
+- 화면 위 시장 지표 띠(코스피·코스닥·S&P 500·나스닥·환율·금리·비트코인), 누르면 차트
+
+**차트** (라이브러리 없이 SVG)
+- 일봉 캔들, 이동평균, 일목균형표(구름·후행스팬·앞 구름), 볼린저밴드, 거래량, 평단선(계좌별)
+- '오늘' 1분봉, 기간의 최고가·최저가
+- **AI 가격선**: AI가 낸 매수 구간·철회 기준·목표가와 매매 계획 가격을 차트 위에
+
+**AI** (Anthropic API 키 없이 `claude -p`로 Claude Code 구독을 사용)
+- 포트폴리오 분석 리포트: 웹 검색 + 차트 점검 + 계좌 규칙(ISA·연금저축 등)을 반영한 이번 달 실행 계획
+- 질문하기: 질문에 나온 종목(한글 이름·티커·코드)을 찾아 차트 지표를 붙여서 답함
+- 종목 검색 탭: 국내·미국 약 11,000종목 검색 → 차트 → AI 종목 분석 → 추천·계획에 담기
+- 매주 토요일 종목 발굴: 시장 약 1,000종목을 훑고, **차트 패턴의 과거 성과를 백테스트한 숫자**와 함께 AI가 3~5개 추천
+- 추천 성적표: 추천을 지수(KODEX 200·코스닥150·SPY)와 비교해서 매기고 다음 추천에 반영
+- 기억: 투자자 프로필, 지난 추천과 이후 가격 변화, 최근 대화를 파일과 DB에 쌓아 프롬프트에 넣음
+
+## 설계 원칙
+
+- **지표는 코드가 계산하고 AI는 해석만 한다.** AI가 숫자를 지어내지 않게, 이동평균·일목·RSI·지지/저항 등은 파이썬으로 계산해서 넘깁니다.
+- **AI에게 매매 경로를 주지 않는다.** 웹 검색 결과를 읽는 AI는 프롬프트 인젝션에 노출될 수 있어서, AI가 할 수 있는 건 글을 쓰는 것뿐입니다. 매매 계획도 사람이 확인해야 담깁니다.
+- **확률을 숨기지 않는다.** 백테스트에서 단순 차트 패턴은 대부분 지수를 이기지 못했고(상대강도 계열만 꾸준), 이긴 패턴도 중간값은 마이너스였습니다. 화면과 프롬프트에 그대로 보여주고, 추천에는 철회 기준을 꼭 붙입니다. 생존 편향도 밝힙니다.
+- 금액은 `Decimal`, 색은 한국식(상승 빨강, 하락 파랑).
 
 ## 시작하기
 
+준비물: Docker, [Claude Code](https://docs.anthropic.com/claude-code) 구독, (선택) 한국투자증권·토스증권 Open API 키
+
 ```bash
-# uv 설치 (없다면): curl -LsSf https://astral.sh/uv/install.sh | sh
+cp .env.example .env
+# .env 채우기: KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT_NO, TOSS_CLIENT_ID / TOSS_CLIENT_SECRET (없으면 비워 둠)
+# AI용 구독 토큰: claude setup-token 으로 만든 값을 CLAUDE_CODE_OAUTH_TOKEN= 에
+docker compose up -d --build
+open http://localhost:8000
+```
+
+Docker 없이 실행하려면:
+
+```bash
+# uv 설치: curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
-cp .env.example .env   # 필요한 키를 채워 넣기 (1단계는 키 없이도 동작)
-uv run stock --help
+uv run stock web          # http://localhost:8000
+uv run pytest             # 테스트
 ```
 
-## 사용법
+계좌를 직접 넣을 수도 있어요.
 
 ```bash
-# 1) 계좌 등록 (증권사: kis, toss, samsung, other)
-uv run stock account add 한투 --broker kis
+uv run stock account add 한투 --broker kis --kind isa
 uv run stock account add 토스 --broker toss
-uv run stock account add 삼성연금 --broker samsung --kind pension --monthly 400000  # 종류: general/pension/irp/isa
-uv run stock account list
-
-# 2-a) 현재 잔고를 그대로 입력 (종목코드로 국내/미국 자동 판별, 종목명 자동 조회)
-uv run stock holding set 토스 AAPL 3.5 210
-uv run stock holding set 토스 005930 10 71000
-
-# 2-b) 또는 CSV로 한꺼번에 가져오기
-uv run stock import template > my_holdings.csv   # 템플릿 만들기
-uv run stock import holdings 삼성 my_holdings.csv            # 추가/덮어쓰기
-uv run stock import holdings 삼성 my_holdings.csv --replace  # CSV에 없는 종목은 삭제 (계좌 전체 동기화)
-
-# 2-c) 또는 매매할 때마다 기록 (이동평균 단가, 실현손익 자동 계산)
-uv run stock trade buy 한투 005930 10 70000 --date 2026-09-01 --fee 150 --note "실적 기대"
-uv run stock trade sell 한투 005930 3 75000 --fee 1000
-uv run stock trade list
-
-# 3) 종목별 전략 태그 (long=장기, swing=스윙, short=단기) → AI 분석 기준이 달라짐
-uv run stock tag 005930 long
-
-# 4) 전체 현황 (원화 환산, 증권사별·시장별 합계)
-uv run stock summary
+uv run stock sync kis && uv run stock sync toss      # API로 동기화
+uv run stock holding set 토스 AAPL 3.5 210            # 또는 직접 입력
+uv run stock import holdings 토스 my.csv --replace    # 또는 CSV
+uv run stock discover --no-ai                         # 종목 발굴 (패턴 백테스트만)
 ```
+
+> 대시보드는 `127.0.0.1`에만 열립니다. 밖에서 볼 때는 Tailscale 같은 사설망을 쓰고, 공개 인터넷에 열어야 하면 `.env`의 `WEB_PASSWORD`를 꼭 설정하세요.
+
+## 맞춤 설정이 필요한 부분
+
+한 사람의 실제 계좌(토스 일반 / 한투 ISA / 삼성증권 연금저축)에 맞춰 만든 도구라, 다른 구성이라면 아래를 고쳐서 쓰세요.
+
+- `src/stockmate/analysis.py`의 분석 프롬프트에 있는 **계좌 규칙**(어떤 계좌에 무엇을 살 수 있는지, 월 적립액)
+- `src/stockmate/plans.py`의 계좌 이름 정규화(`normalize_account`)
+- 시세는 한국투자증권 시세 API를 우선 쓰고, 없으면 무료 공개 데이터(FinanceDataReader·yfinance, 지연될 수 있음)를 씁니다.
 
 ## 구조
 
 ```
 src/stockmate/
-  config.py       환경 설정 (.env)
-  models.py       DB 모델: Account, Instrument, Holding, Trade
-  db.py           SQLite 연결 (data/stockmate.db)
-  portfolio.py    핵심 로직: 매매 기록, 평균단가, 평가, 합계
-  market_data.py  시세·환율·종목명 조회 (FinanceDataReader, yfinance)
-  importers.py    CSV 가져오기
-  cli.py          명령줄 인터페이스
-tests/            uv run pytest
+  brokers/          한국투자증권·토스증권 Open API (조회 전용)
+  portfolio.py      매매 기록, 평균단가, 평가, 합계
+  technical.py      차트 지표 계산 → AI용 요약
+  patterns.py       발굴용 차트 패턴과 백테스트
+  discovery.py      매주 종목 발굴, 추천 성적표
+  analysis.py       claude -p 실행 (분석, 질문)
+  research.py       검색 탭 종목 분석, AI 가격선
+  memory.py ideas.py plans.py   기억, 추천 종목, 매매 계획
+  web/              FastAPI + 바닐라 JS 대시보드 (빌드 없음)
+tests/              uv run pytest (외부 호출 없이)
 ```
 
-- 금액은 모두 `Decimal`로 계산하고 SQLite에는 문자열로 저장해서 부동소수점 오차가 없습니다.
-- 평균단가는 증권사 앱 표기와 같게 수수료를 뺀 값이고, 수수료는 매도 시 실현손익에서 차감합니다.
+자세한 설계 결정과 주의사항은 [`CLAUDE.md`](CLAUDE.md)에 있습니다 (Claude Code가 먼저 읽는 파일).
 
-## 문서
+## 라이선스
 
-- `CLAUDE.md`: 구조, 설계 결정, 주의사항 (Claude Code가 먼저 읽는 파일)
-- `docs/HANDOFF.md`: 첫 세션 대화 요약, 결정 배경, 남은 일
-- `docs/DEPLOY_AWS.md`: AWS(t3a.micro) 배포 절차
-
-## 로드맵
-
-- [x] **1단계** 통합 포트폴리오: 계좌/잔고/매매 기록, CSV 가져오기, 현재가·환율 평가
-- [x] **2단계** 한국투자증권 Open API 연동: `stock sync kis` (잔고·예수금 동기화, 모든 보유 종목의 현재가)
-- [x] **3단계** 웹 대시보드: `stock web` → http://localhost:8000 (주식 지도, 계좌, 종목, 1분 자동 갱신)
-- [x] **4단계** AI 분석 (Claude Code 구독, API 키 불필요): 분석 리포트, 질문하기
-- [x] **4-1단계** 기억: 투자자 프로필(`data/memory/profile.md`), 추천 기록과 이후 가격 변화, 최근 대화
-- [ ] **4-2단계** 매매 자동 감지와 추천 성적표
-- [ ] **5단계** 텔레그램 알림과 스케줄링 (장 전 브리핑, 목표가, 급등락, 공시)
-- [ ] **6단계** 백테스팅과 스크리너
+[MIT](LICENSE)

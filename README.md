@@ -5,6 +5,20 @@
 
 > 분석 결과는 참고용이며, 매매 판단과 책임은 본인에게 있습니다. **주문 기능은 일부러 만들지 않았습니다.**
 
+![포트폴리오: 총자산, 수익률로 칠한 주식 지도, 기간 성과](docs/images/portfolio.png)
+
+| 차트와 AI 가격선 | 오늘 분봉 |
+|---|---|
+| ![엔비디아 6개월 일봉: 이동평균, 일목 구름, AI 매수 구간·철회 기준·목표가, 계좌 평단](docs/images/chart.png) | ![하루 1분봉: 어제 종가 기준선, 최고·최저](docs/images/chart-today.png) |
+| **AI 추천 종목** | **매매 계획** |
+| ![추천 카드: 기간, 걸린 패턴, 사는 가격대, 철회 기준, 목표가](docs/images/ideas.png) | ![계좌별·시기별 매매 계획과 조건까지 남은 거리](docs/images/plans.png) |
+| **기간 성과** | **어두운 화면** |
+| ![1주 성과: 지수 비교, 날마다 평가금, 많이 오르고 내린 종목](docs/images/performance.png) | ![다크 모드](docs/images/portfolio-dark.png) |
+
+휴대폰에서도 같은 화면을 써요. <img src="docs/images/mobile.png" alt="휴대폰 화면" width="220" align="right">
+
+<sub>스크린샷은 `scripts/make_demo.py`로 만든 데모 데이터예요 (보유 종목·금액·AI 의견은 예시, 시세만 실제).</sub>
+
 ## 무엇을 하나요
 
 **포트폴리오**
@@ -45,6 +59,15 @@ cp .env.example .env
 docker compose up -d --build
 open http://localhost:8000
 ```
+
+**키 없이 먼저 둘러보기 (데모 데이터)**
+
+```bash
+DB_PATH=demo/stockmate.db uv run python scripts/make_demo.py
+DB_PATH=demo/stockmate.db KIS_APP_KEY= TOSS_CLIENT_ID= uv run stock web --port 8010   # http://localhost:8010
+```
+
+예시 계좌 3개(일반·ISA·연금저축)와 종목 12개, 매매 계획, 추천 카드, AI 의견 예시가 들어가요. 실제 `data/`와는 섞이지 않아요.
 
 Docker 없이 실행하려면:
 

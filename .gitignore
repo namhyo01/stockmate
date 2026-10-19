@@ -4,6 +4,8 @@ data/
 # 개인 기록(인수인계 문서, 백업 등)과 이 컴퓨터만의 실행 환경 메모 (Claude Code가 자동으로 읽는다)
 private/
 CLAUDE.local.md
+# scripts/make_demo.py로 만든 데모 데이터
+demo/
 *.db
 *.csv
 !samples/*.csv

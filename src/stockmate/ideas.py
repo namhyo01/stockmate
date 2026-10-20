@@ -30,7 +30,10 @@ _IDEAS_BLOCK = re.compile(r"```ideas[ \t]*\n(.*?)```", re.S)
 IDEAS_GUIDE = """- name: 종목명, symbol: 국내 6자리 코드 또는 미국 티커 (예: BRK.B), account: 담을 계좌 (토스 / 한투 / 삼성연금)
 - summary: 한 줄 요약, thesis: 추천 이유 목록, risks: 리스크 목록, overlap: 지금 가진 종목과 겹치는 정도 (한두 문장)
 - entry_low, entry_high: 사기 좋은 가격 범위 (종목 통화, 한쪽만 써도 됨, 없으면 null)
-- horizon: "swing"(몇 주~몇 달) 또는 "long"(1년 이상), target: 목표가, stop: 종가로 깨면 추천을 철회할 가격 (모르면 null)
+- horizon: "swing"(몇 주~몇 달) 또는 "long"(1년 이상), target: 파는 목표가, stop: 종가로 깨면 추천을 철회(손절)할 가격
+- **스윙(horizon=swing)이면 entry_low·entry_high(사는 가격), target(파는 가격), stop(손절가)를 모두 숫자로 쓰세요.**
+  target은 위 저항선 기준, stop은 아래 지지선 바로 밑. 사는 가격 가운데에서 목표까지 이익이 손절까지 손실의 1.5배 이상(손익비 1.5 이상)인 자리만 추천하세요.
+  장기는 target·stop을 모르면 null이어도 됩니다
 - sources: 근거로 쓴 웹 페이지 [{"title": "...", "url": "https://..."}] (답변의 출처와 같게)"""
 
 
@@ -201,6 +204,7 @@ def idea_rows(session: Session, provider: PriceProvider) -> dict[str, Any]:
             "target": _num(idea.target),
             "stop": _num(idea.stop),
             "below_stop": bool(price is not None and idea.stop and price < idea.stop),
+            "math": trade_math(idea.entry_low, idea.entry_high, idea.target, idea.stop, price),
             "hit_target": bool(price is not None and idea.target and price >= idea.target),
             "price_at": _num(idea.price_at),
             "price_now": _num(price),
@@ -219,27 +223,38 @@ def idea_rows(session: Session, provider: PriceProvider) -> dict[str, Any]:
     return result
 
 
+def trade_math(entry_low: Decimal | None, entry_high: Decimal | None, target: Decimal | None,
+               stop: Decimal | None, price: Decimal | None = None) -> dict[str, float | None]:  # fmt: skip
+    """사는 가격(구간 가운데, 없으면 지금 가격)에서 목표가까지 이익 %, 손절가까지 손실 %, 손익비."""
+    base = (entry_low + entry_high) / 2 if entry_low and entry_high else entry_low or entry_high or price
+    if not base:
+        return {"base": None, "reward_pct": None, "risk_pct": None, "rr": None}
+    reward = (target / base - 1) * 100 if target else None
+    risk = (1 - stop / base) * 100 if stop else None
+    rr = reward / risk if reward is not None and risk and risk > 0 else None
+    return {"base": float(base), "reward_pct": _num(reward), "risk_pct": _num(risk), "rr": _num(rr)}
+
+
 def plan_draft(session: Session, idea: Idea) -> dict[str, Any]:
     """추천 카드 → 계획 탭에 담기 창 초안 (AI 없이 카드 값으로). 이 종목의 열린 계획도 함께 (같은 방향이면 바뀐다)."""
     from stockmate import plans
 
     market = idea.market or (detect_market(idea.symbol) if idea.symbol else None)
     conditions = [f"철회 기준 {_plain(idea.stop)}" if idea.stop else "", f"목표가 {_plain(idea.target)}" if idea.target else ""]
-    item = {
-        "side": "buy",
-        "account": idea.account,
-        "quantity": None,
-        "amount_krw": None,
-        "price_low": _num(idea.entry_low),
-        "price_high": _num(idea.entry_high),
-        "timing": " · ".join(c for c in ["추천 가격대에 들어오면", *conditions] if c),
-        "reason": idea.summary,
-        "due_from": None,
-        "due_to": None,
-    }
+    base = {"account": idea.account, "quantity": None, "amount_krw": None, "due_from": None, "due_to": None}
+    items = [{
+        **base, "side": "buy", "price_low": _num(idea.entry_low), "price_high": _num(idea.entry_high),
+        "timing": " · ".join(c for c in ["추천 가격대에 들어오면", *conditions] if c), "reason": idea.summary,
+    }]  # fmt: skip
+    if idea.target:  # 스윙은 사는 계획과 함께 파는 계획(목표가)도 채운다. 손절 계획은 끈 채로 넣어 둔다
+        items.append({**base, "side": "sell", "price_low": _num(idea.target), "price_high": None,
+                      "timing": "목표가에 닿으면 (나눠 팔기)", "reason": f"{idea.name} 목표가"})  # fmt: skip
+    if idea.stop:
+        items.append({**base, "side": "sell", "price_low": None, "price_high": _num(idea.stop), "on": False,
+                      "timing": "종가로 손절가를 깨면", "reason": "추천 근거가 깨지면 정리 (손절)"})  # fmt: skip
     open_items = [plans.item_dict(i) for i in plans.open_items(session) if idea.symbol and i.symbol == idea.symbol]
     return {"name": idea.name, "market": market.value if market else None, "symbol": idea.symbol,
-            "currency": market.currency if market else "KRW", "items": [item], "open": open_items}  # fmt: skip
+            "currency": market.currency if market else "KRW", "items": items, "open": open_items}  # fmt: skip
 
 
 def _plain(value: Decimal) -> str:

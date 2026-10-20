@@ -80,3 +80,17 @@ def test_plan_draft_from_idea(session):
     assert (item["side"], item["account"], item["price_low"], item["price_high"]) == ("buy", "토스", 480.0, 505.0)
     assert item["timing"] == "추천 가격대에 들어오면 · 철회 기준 455 · 목표가 560.5"
     assert [o["side"] for o in d["open"]] == ["buy"]  # 열린 매수 계획은 바뀐다고 알려준다
+
+
+def test_trade_math_reward_risk_ratio():
+    m = ideas.trade_math(D(95), D(105), D(130), D(88))  # 가운데 100에서 +30% / −12%
+    assert (m["base"], m["reward_pct"], m["risk_pct"]) == (100.0, 30.0, 12.0) and round(m["rr"], 2) == 2.5
+    assert ideas.trade_math(None, None, D(110), None, price=D(100))["reward_pct"] == 10.0  # 사는 가격이 없으면 지금 가격
+    assert ideas.trade_math(None, None, None, None)["rr"] is None
+
+
+def test_plan_draft_for_swing_adds_sell_target_and_unchecked_stop(session):
+    idea = ideas.apply_ideas(session, [{**BRK, "horizon": "swing", "entry_low": 480, "entry_high": 500, "stop": 455, "target": 560}], "weekly")[0]
+    items = ideas.plan_draft(session, idea)["items"]
+    assert [(i["side"], i["price_low"], i["price_high"], i.get("on", True)) for i in items] == [
+        ("buy", 480.0, 500.0, True), ("sell", 560.0, None, True), ("sell", None, 455.0, False)]

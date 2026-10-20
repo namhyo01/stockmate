@@ -517,6 +517,16 @@ a.btn { text-decoration: none; }
 .ibadge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--sunken); color: var(--ink-2); }
 .ibadge.h { background: var(--ink); color: var(--paper); }
 .ilevels { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); }
+.tbox { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.tb-c { display: grid; gap: 1px; min-width: 0; }
+.tb-c small, .tb-rr small { font-size: 11.5px; color: var(--ink-3); font-weight: 650; }
+.tb-c b { font-size: 14.5px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.tb-c span { font-size: 12px; font-weight: 650; color: var(--ink-2); }
+.tb-c.up span { color: var(--up); } .tb-c.down span { color: var(--down); }
+.tb-arrow { align-self: center; color: var(--ink-3); }
+.tb-rr { margin-left: auto; display: grid; gap: 1px; text-align: right; }
+.tb-rr b { font-size: 14.5px; font-weight: 750; }
+.tb-rr.warn b { color: var(--warn-ink); }
 .ilevels b { color: var(--ink); font-weight: 700; }
 .iwarn { font-size: 13px; font-weight: 650; padding: 8px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); }
 
@@ -2002,8 +2012,7 @@ function ideaCard(i) {
     ${ideaBadges(i)}
     ${i.summary ? `<p class="isum">${esc(i.summary)}</p>` : ""}
     <div class="iprice">${prices}${zone}</div>
-    ${i.target != null || i.stop != null ? `<div class="ilevels">${i.target != null ? `<span>목표가 <b>${money(i.target)}</b></span>` : ""}${
-      i.stop != null ? `<span>철회 기준 <b>${money(i.stop)}</b> (종가로 깨면 추천 철회)</span>` : ""}</div>` : ""}
+    ${tradeBox(i, money)}
     ${i.below_stop ? `<div class="iwarn">지금 가격이 철회 기준 아래예요. 추천 근거가 깨졌을 수 있어요.</div>` : i.hit_target ? `<div class="iwarn">목표가에 닿았어요. 나눠 팔지 생각해 보세요.</div>` : ""}
     ${i.thesis.length ? `<div class="isec"><h4>왜 추천했나</h4>${list(i.thesis)}</div>` : ""}
     ${i.risks.length ? `<div class="isec risk"><h4>리스크</h4>${list(i.risks)}</div>` : ""}
@@ -2083,6 +2092,23 @@ $("disc-run").addEventListener("click", async () => {
   try { disc.data = await api("/api/discovery", { method: "POST" }); renderDiscovery(); toast("종목을 찾기 시작했어요. 다 되면 알려드릴게요"); }
   catch (e) { toast(`시작하지 못했어요: ${e.message}`, "error"); }
 });
+
+// 매수 → 매도(목표) / 손절과 손익비. 스윙이면 사서 팔 때까지 한눈에 보이게
+function tradeBox(i, money) {
+  if (i.target == null && i.stop == null) return "";
+  const m = i.math || {};
+  const buy = i.entry_low != null && i.entry_high != null ? `${money(i.entry_low)}~${money(i.entry_high)}`
+    : i.entry_low ?? i.entry_high ? money(i.entry_low ?? i.entry_high) : "지금 가격";
+  const cell = (k, v, sub, cls = "") => `<div class="tb-c ${cls}"><small>${k}</small><b>${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
+  const rrWarn = i.horizon === "swing" && m.rr != null && m.rr < 1.5;
+  return `<div class="tbox">
+    ${cell("매수", buy, "")}
+    <span class="tb-arrow" aria-hidden="true">→</span>
+    ${i.target != null ? cell("매도 목표", money(i.target), m.reward_pct != null ? `+${m.reward_pct.toFixed(1)}%` : "", "up") : cell("매도 목표", "-", "")}
+    ${i.stop != null ? cell("손절", money(i.stop), m.risk_pct != null ? `−${m.risk_pct.toFixed(1)}% (종가로 깨면)` : "", "down") : ""}
+    ${m.rr != null ? `<div class="tb-rr${rrWarn ? " warn" : ""}" title="목표까지 이익 ÷ 손절까지 손실 (사는 가격 가운데 기준)"><small>손익비</small><b>1 : ${m.rr.toFixed(1)}</b></div>` : ""}
+  </div>`;
+}
 
 function renderIdeas() {
   const d = idea.data; if (!d) return;
@@ -3159,7 +3185,7 @@ async function openPlanSheet(btn, meta, url, label = "초안 만드는 중") {
   try {
     const d = await api(url);
     Object.assign(psheet, { meta, open: d.open || [], currency: d.currency,
-      rows: (d.items || []).map((r) => ({ ...r, account: PS_ACCOUNTS.includes(r.account) ? r.account : "토스", on: true })) });
+      rows: (d.items || []).map((r) => ({ ...r, account: PS_ACCOUNTS.includes(r.account) ? r.account : "토스", on: r.on ?? true })) });
     $("plansheet-title").textContent = `${meta.name} 계획 탭에 담기`;
     renderPlanSheet();
     $("plansheet").showModal();

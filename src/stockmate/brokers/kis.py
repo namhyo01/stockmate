@@ -30,10 +30,34 @@ BASE_URL = "https://openapi.koreainvestment.com:9443"
 # 접근토큰은 24시간 유효하고 발급은 1분에 1번만 가능하므로 파일에 캐시한다.
 TOKEN_REFRESH_MARGIN = timedelta(minutes=10)
 
-# 실전 계좌는 초당 20건까지 호출할 수 있다. 여유를 두고 호출 간격을 벌린다.
-MIN_CALL_INTERVAL = 0.1
-RATE_LIMIT_CODE = "EGW00201"
-RATE_LIMIT_RETRIES = 2
+# 실전 계좌는 초당 20건까지 호출할 수 있다. 시세·잔고 동기화·차트가 여러 KisClient로 동시에 부르므로
+# 간격은 클라이언트마다가 아니라 프로그램 전체에서 하나로 지킨다 (예전에는 클라이언트마다 따로 지켜서 합치면 한도를 넘었다).
+MIN_CALL_INTERVAL = 0.12  # 초당 약 8건
+# EGW00201: 초당 거래건수 초과, EGW00215: 원장(잔고 등 계좌) 조회의 초당 거래건수 초과 (더 낮은 한도)
+RATE_LIMIT_CODES = frozenset({"EGW00201", "EGW00215"})
+RATE_LIMIT_RETRIES = 3
+# 잔고처럼 계좌 원장을 읽는 조회(TR ID가 TTTC·CTRP로 시작)는 따로 더 넓게 띄운다
+LEDGER_PREFIXES = ("TTTC", "CTRP")
+LEDGER_CALL_INTERVAL = 0.5
+_throttle_lock = threading.Lock()
+_last_call = 0.0
+_last_ledger_call = 0.0
+
+
+def _wait_turn(tr_id: str = "") -> None:
+    """모든 KisClient가 함께 쓰는 호출 간격 (원장 조회는 원장 조회끼리 더 넓게)."""
+    global _last_call, _last_ledger_call
+    with _throttle_lock:
+        now = time.monotonic()
+        wait = _last_call + MIN_CALL_INTERVAL - now
+        ledger = tr_id.startswith(LEDGER_PREFIXES)
+        if ledger:
+            wait = max(wait, _last_ledger_call + LEDGER_CALL_INTERVAL - now)
+        if wait > 0:
+            time.sleep(wait)
+        _last_call = time.monotonic()
+        if ledger:
+            _last_ledger_call = _last_call
 
 # 미국 종목은 거래소 코드를 알아야 시세를 조회할 수 있다. 모르면 순서대로 시도한다.
 US_EXCHANGES = ("NAS", "NYS", "AMS")
@@ -53,8 +77,6 @@ class KisClient:
         self._app_secret = app_secret
         self._token_path = token_path
         self._http = httpx.Client(base_url=BASE_URL, timeout=15)
-        self._throttle_lock = threading.Lock()
-        self._last_call = 0.0
 
     # ── 인증 ──────────────────────────────────────────
 
@@ -100,9 +122,9 @@ class KisClient:
         """본문과 연속조회 여부(tr_cont 응답 헤더: M/F면 다음 페이지 있음)를 돌려준다."""
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             body, next_flag = self._request(path, tr_id, params, tr_cont)
-            if body.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
+            if body.get("msg_cd") not in RATE_LIMIT_CODES or attempt == RATE_LIMIT_RETRIES:
                 break
-            time.sleep(1)  # 초당 호출 한도 초과: 잠시 쉬었다가 다시 시도
+            time.sleep(0.5 * (attempt + 1))  # 초당 호출 한도 초과: 조금씩 더 오래 쉬었다가 다시 시도
         if body.get("rt_cd") != "0":
             raise KisError(f"{tr_id} 조회 실패: [{body.get('msg_cd')}] {body.get('msg1')}")
         return body, next_flag
@@ -110,11 +132,7 @@ class KisClient:
     def _request(
         self, path: str, tr_id: str, params: dict[str, str], tr_cont: str
     ) -> tuple[dict[str, Any], str]:
-        with self._throttle_lock:
-            wait = self._last_call + MIN_CALL_INTERVAL - time.monotonic()
-            if wait > 0:
-                time.sleep(wait)
-            self._last_call = time.monotonic()
+        _wait_turn(tr_id)
         response = self._http.get(
             path,
             params=params,

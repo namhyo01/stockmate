@@ -1623,7 +1623,13 @@ async function syncAll({ silent = false } = {}) {
     const res = await api(silent ? "/api/refresh" : "/api/refresh?force=true", { method: "POST" });
     state.lastSync = Date.now();
     render(res.snapshot);
-    res.messages.filter((m) => !silent || m.level !== "success").forEach((m) => toast(m.text, m.level === "success" ? "info" : m.level));
+    // 자동 동기화(1분마다)의 같은 경고·오류는 10분에 한 번만 띄운다 (일시적인 호출 한도 같은 것)
+    const now = Date.now();
+    res.messages.filter((m) => !silent || m.level !== "success").forEach((m) => {
+      if (silent && now - (syncAll.shown?.[m.text] || 0) < 10 * 60_000) return;
+      (syncAll.shown ||= {})[m.text] = now;
+      toast(m.text, m.level === "success" ? "info" : m.level);
+    });
     if (!silent) toast("잔고와 시세를 새로고침했어요");
   } catch (e) { if (!silent) toast(`새로고침하지 못했어요: ${e.message}`, "error"); }
   finally { if (!silent) busy(btn, false); }

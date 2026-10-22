@@ -841,6 +841,9 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
   font: inherit; color: inherit; cursor: pointer; user-select: none; }
 .clegend .lg:hover { background: var(--sunken); }
 .clegend .lg.off { opacity: .38; text-decoration: line-through; }
+.hit-ln { fill: none; stroke: transparent; stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { .hit-ln:hover { stroke: color-mix(in srgb, var(--ink) 10%, transparent); } }
+@media (pointer: coarse) { .hit-ln { pointer-events: none; } }
 .clegend .lg-reset { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 650; padding: 1px 9px; border-radius: 999px; cursor: pointer; }
 .clegend svg { flex: none; }
 .clegend b { color: var(--ink); font-weight: 650; }
@@ -2500,12 +2503,14 @@ function bindChartRoot(root) {
 root.addEventListener("click", (e) => {
   if (chart.root !== root) return;
   const leg = e.target.closest("[data-lk]"), reset = e.target.closest("[data-lk-reset]");
+  // 휴대폰에서 차트를 짚어 값을 볼 때 선이 사라지지 않게, 선 위 누르기는 마우스로만 (범례는 어디서나)
+  if (leg?.classList.contains("hit-ln") && e.pointerType && e.pointerType !== "mouse") return;
   if (leg || reset) {
     const k = leg?.dataset.lk;
     if (reset) chart.hidden.clear();
     else if (e.detail >= 2) {  // 두 번 누르기: 이 선만 남기기 (이미 이 선만 남아 있었으면 모두 보기)
       const before = chart.beforeClick || chart.hidden;  // 첫 번째 누르기가 바꾸기 전 상태로 판단한다
-      const keys = [...root.querySelectorAll("[data-lk]")].map((b) => b.dataset.lk);
+      const keys = [...new Set([...root.querySelectorAll(".lg[data-lk]")].map((b) => b.dataset.lk))];
       const wasSolo = !before.has(k) && keys.every((x) => x === k || before.has(x)) && keys.length > 1;
       chart.hidden = new Set(wasSolo ? [] : keys.filter((x) => x !== k));
     } else {
@@ -2513,7 +2518,7 @@ root.addEventListener("click", (e) => {
       if (chart.hidden.has(k)) chart.hidden.delete(k); else chart.hidden.add(k);
     }
     saveHidden(); drawChart(); updateReadout();
-    root.querySelector(`[data-lk="${CSS.escape(k || "")}"]`)?.focus({ preventScroll: true });
+    root.querySelector(`.lg[data-lk="${CSS.escape(k || "")}"]`)?.focus({ preventScroll: true });
     return;
   }
   const r = e.target.closest("[data-crange]");
@@ -2652,6 +2657,7 @@ function drawChart() {
   const X = (i) => padL + (i - start + 0.5) * bw;  // i: 날짜 순번 (n 이상이면 앞날짜)
   const lines = CHART_LINES.filter((l) => layerOn(l.layer) && !isHidden(lineKey(l)));
   const cloudOn = ich && !isHidden("cloud");
+  const hits = [];
 
   // 세로 범위: 보이는 캔들과 보이는 선·구름을 모두 담는다
   let lo = Infinity, hi = -Infinity;
@@ -2722,6 +2728,8 @@ function drawChart() {
     out.push(`<path class="cloud-up" d="${up.join("")}"/><path class="cloud-down" d="${down.join("")}"/>`);
     out.push(linePath(d.cloud.a, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y, "ln l-span-a"));
     out.push(linePath(d.cloud.b, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y, "ln l-span-b"));
+    hits.push(hitLine("cloud", "구름(선행스팬)", linePathD(d.cloud.a, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y)),
+              hitLine("cloud", "구름(선행스팬)", linePathD(d.cloud.b, cloudFrom, n, (i) => X(i + CLOUD_SHIFT), Y)));
   }
 
   // 거래량, 캔들
@@ -2747,7 +2755,11 @@ function drawChart() {
   if (n - start > 1) { hlMark(ih, d.ohlc[ih][1], true); hlMark(il, d.ohlc[il][2], false); }
 
   // 지표 선 (후행스팬은 오늘 종가를 25칸 앞에 그린 값이라 그대로 같은 자리에 그린다)
-  lines.forEach((l) => out.push(linePath(d.lines[l.k], start, n, X, Y, `ln ${l.cls || `l-${l.k}`}`)));
+  lines.forEach((l) => {
+    const dd = linePathD(d.lines[l.k], start, n, X, Y);
+    if (dd) out.push(`<path class="ln ${l.cls || `l-${l.k}`}" d="${dd}"/>`);
+    hits.push(hitLine(lineKey(l), l.label, dd));
+  });
 
   // AI 가격선: 사는 구간은 띠, 철회 기준·목표가·계획 가격은 선. 글자는 왼쪽에 (오른쪽 가격 표시와 겹치지 않게)
   const x0 = padL, x1 = W - padR;
@@ -2765,10 +2777,14 @@ function drawChart() {
     if (l.kind === "band" && (inView(l.from) || inView(l.to) || (l.from <= lo && l.to >= hi))) {
       const yt = Y(Math.min(l.to, hi)), yb = Y(Math.max(l.from, lo));
       out.push(`<rect class="lv-band ${l.cls}" x="${x0}" y="${yt}" width="${x1 - x0}" height="${Math.max(1, yb - yt)}"/>`);
-      [l.from, l.to].filter(inView).forEach((v) => out.push(`<line class="lv-edge ${l.cls}" x1="${x0}" x2="${x1}" y1="${Y(v)}" y2="${Y(v)}"/>`));
+      [l.from, l.to].filter(inView).forEach((v) => {
+        out.push(`<line class="lv-edge ${l.cls}" x1="${x0}" x2="${x1}" y1="${Y(v)}" y2="${Y(v)}"/>`);
+        hits.push(hitH(l.key, l.text, x0, x1, Y(v)));
+      });
       label(yt, l.text, l.cls);
     } else if (l.kind === "line" && inView(l.from)) {
       out.push(`<line class="lv-line ${l.cls}" x1="${x0}" x2="${x1}" y1="${Y(l.from)}" y2="${Y(l.from)}"/>`);
+      hits.push(hitH(l.key, l.text, x0, x1, Y(l.from)));
       label(Y(l.from), l.text, l.cls);
     }
   }
@@ -2781,6 +2797,7 @@ function drawChart() {
     const name = many && account ? `${account} 평단` : "평단";  // 여러 계좌면 계좌 이름을 붙인다
     if (avg > lo && avg < hi) {
       out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(avg)}" y2="${Y(avg)}"/>`);
+      hits.push(hitH(avgKey(account), name, padL, W - padR, Y(avg)));
       label(Y(avg), `${name} ${chartPrice(avg, d)}`, "avg");  // 이름은 선 옆에, 오른쪽에는 가격만 (칸이 좁다)
       tags.push({ cls: "avg", y: Y(avg), text: fmt(avg) });
     } else {
@@ -2798,13 +2815,17 @@ function drawChart() {
     <text x="${W - padR + 6}" y="${t.y + 4}">${esc(t.text)}</text></g>`));
 
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(chart.meta.name)} 일봉 차트. 화살표 키로 날짜를 옮겨요">
-    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
+    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/>${hits.join("")}</svg>`;
   chart.geo = { start, n, X, Y, bw, padL, padR, W, top, bottom: volTop + volH, lo, hi, priceH, fmt };
   drawLegend();
   drawCross();
 }
 
 function linePath(values, from, to, X, Y, cls) {
+  const d = linePathD(values, from, to, X, Y);
+  return d ? `<path class="${cls}" d="${d}"/>` : "";
+}
+function linePathD(values, from, to, X, Y) {
   let d = "", pen = false;
   for (let i = from; i < to; i++) {
     const v = values[i];
@@ -2814,8 +2835,11 @@ function linePath(values, from, to, X, Y, cls) {
     d += `${pen ? "L" : "M"}${x.toFixed(1)},${Y(v).toFixed(1)}`;
     pen = true;
   }
-  return d ? `<path class="${cls}" d="${d}"/>` : "";
+  return d;
 }
+// 선 위를 직접 눌러 숨기기: 보이지 않는 넓은 판정 선 (맨 위에 깔아서 캔들·십자선보다 먼저 잡힌다)
+const hitLine = (key, label, d) => d ? `<path class="hit-ln" data-lk="${esc(key)}" d="${d}"><title>${esc(label)} · 눌러서 숨기기, 두 번 누르면 이 선만</title></path>` : "";
+const hitH = (key, label, x1, x2, y) => hitLine(key, label, `M${x1},${y.toFixed(1)}L${x2},${y.toFixed(1)}`);
 
 function drawCross() {
   const g = chart.geo, el = cq("cross");
@@ -3392,7 +3416,7 @@ function drawToday(el) {
   const X = (i) => padL + (i + 0.5) * bw, Y = (v) => top + ((hi - v) / (hi - lo)) * priceH;
   const fmt = (v) => d.currency === "INDEX" ? v.toLocaleString("en-US", { maximumFractionDigits: d.digits }) : d.currency === "USD" ? v.toFixed(2) : won(v);
   const cls = tone(td.prev_close == null ? 0 : td.last - td.prev_close);
-  const out = [];
+  const out = [], hits = [];
   // 가격 눈금
   const step = niceStep(hi - lo, 5);
   for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
@@ -3422,11 +3446,13 @@ function drawToday(el) {
   }
   // 어제 종가 기준선
   if (td.prev_close != null && !isHidden("prev")) {
+    hits.push(hitH("prev", "어제 종가", padL, W - padR, Y(td.prev_close)));
     out.push(`<line class="td-prev" x1="${padL}" x2="${W - padR}" y1="${Y(td.prev_close)}" y2="${Y(td.prev_close)}"/>
       <text class="lv-t avg" x="${padL + 6}" y="${Y(td.prev_close) - 4}">어제 종가 ${chartPrice(td.prev_close, d)}</text>`);
   }
   // 평단 (보이는 범위 안에 있을 때만)
   chartAvgs().filter(({ account, avg }) => avg > lo && avg < hi && !isHidden(avgKey(account))).forEach(({ account, avg }, _, all) => {
+    hits.push(hitH(avgKey(account), all.length > 1 && account ? `${account} 평단` : "평단", padL, W - padR, Y(avg)));
     out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(avg)}" y2="${Y(avg)}"/>
       <text class="lv-t avg" x="${W - padR - 6}" y="${Y(avg) - 4}" text-anchor="end">${all.length > 1 && account ? `${esc(account)} 평단` : "평단"} ${chartPrice(avg, d)}</text>`);
   });
@@ -3455,7 +3481,7 @@ function drawToday(el) {
   out.push(`<line class="ref ${cls === "down" ? "down" : "up"}" x1="${padL}" x2="${W - padR}" y1="${Y(td.last)}" y2="${Y(td.last)}"/>
     <g class="tag ${cls === "down" ? "down" : "up"}"><rect class="${cls === "down" ? "down" : "up"}" x="${W - padR + 2}" y="${Y(td.last) - 8}" width="${padR - 4}" height="16"/><text x="${W - padR + 6}" y="${Y(td.last) + 4}">${fmt(td.last)}</text></g>`);
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(chart.meta.name)} 오늘 분봉 차트. 화살표 키로 시각을 옮겨요">
-    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/></svg>`;
+    ${out.join("")}<g data-c="cross"></g><rect x="${padL}" y="${top}" width="${W - padL - padR}" height="${volTop + volH - top}" fill="transparent"/>${hits.join("")}</svg>`;
   chart.geo = { start: 0, n, X, bw, padL, padR, W, top, bottom: volTop + volH, lo, hi, priceH, fmt, today: true };
   drawCross();
 }

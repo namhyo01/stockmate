@@ -837,6 +837,11 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .cplot .future-label { fill: var(--ink-3); font-size: 11px; }
 .clegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .clegend span { display: inline-flex; align-items: center; gap: 6px; }
+.clegend .lg { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; margin: -2px -4px; border-radius: 6px;
+  font: inherit; color: inherit; cursor: pointer; user-select: none; }
+.clegend .lg:hover { background: var(--sunken); }
+.clegend .lg.off { opacity: .38; text-decoration: line-through; }
+.clegend .lg-reset { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 650; padding: 1px 9px; border-radius: 999px; cursor: pointer; }
 .clegend svg { flex: none; }
 .clegend b { color: var(--ink); font-weight: 650; }
 .csum { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -2414,6 +2419,14 @@ function chartPrice(v, d = chart.data) {
 const chart = { data: null, meta: null, cursor: null, req: 0, geo: null,
   range: Number(loadPref("chartRange", "126")) || 0, layers: loadJSON("chartLayers") };
 const layerOn = (k) => chart.layers[k] ?? k !== "bb";
+// 범례를 눌러 선마다 숨기기: 한 번 누르면 숨기기·보이기, 두 번 누르면 그 선만 남기기 (고른 상태는 기억한다)
+chart.hidden = new Set((() => { try { return JSON.parse(localStorage.getItem("chartHidden") || "[]"); } catch { return []; } })());
+const isHidden = (k) => chart.hidden.has(k);
+const lineKey = (l) => l.k.startsWith("bb_") ? "bb" : l.k;  // 볼린저 상단·하단은 함께 켜고 끈다
+const avgKey = (account) => `avg:${account || ""}`;
+function saveHidden() { try { localStorage.setItem("chartHidden", JSON.stringify([...chart.hidden])); } catch {} }
+// 범례 한 칸: 누를 수 있는 버튼, 숨긴 선은 흐리게
+const lg = (key, inner) => `<button type="button" class="lg${isHidden(key) ? " off" : ""}" data-lk="${esc(key)}" aria-pressed="${!isHidden(key)}" title="눌러서 숨기기·보이기, 두 번 누르면 이 선만">${inner}</button>`;
 
 function chartAttrs(market, symbol, name, avg) {
   return `data-chart="${esc(symbol)}" data-market="${esc(market)}" data-name="${esc(name)}"${avg != null ? ` data-avg="${avg}"` : ""}`;
@@ -2486,6 +2499,23 @@ function renderChartShell() {
 function bindChartRoot(root) {
 root.addEventListener("click", (e) => {
   if (chart.root !== root) return;
+  const leg = e.target.closest("[data-lk]"), reset = e.target.closest("[data-lk-reset]");
+  if (leg || reset) {
+    const k = leg?.dataset.lk;
+    if (reset) chart.hidden.clear();
+    else if (e.detail >= 2) {  // 두 번 누르기: 이 선만 남기기 (이미 이 선만 남아 있었으면 모두 보기)
+      const before = chart.beforeClick || chart.hidden;  // 첫 번째 누르기가 바꾸기 전 상태로 판단한다
+      const keys = [...root.querySelectorAll("[data-lk]")].map((b) => b.dataset.lk);
+      const wasSolo = !before.has(k) && keys.every((x) => x === k || before.has(x)) && keys.length > 1;
+      chart.hidden = new Set(wasSolo ? [] : keys.filter((x) => x !== k));
+    } else {
+      chart.beforeClick = new Set(chart.hidden);
+      if (chart.hidden.has(k)) chart.hidden.delete(k); else chart.hidden.add(k);
+    }
+    saveHidden(); drawChart(); updateReadout();
+    root.querySelector(`[data-lk="${CSS.escape(k || "")}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   const r = e.target.closest("[data-crange]");
   if (r) {
     const was = chart.range;
@@ -2515,21 +2545,21 @@ function aiPriceLines(d) {
   if (main) {
     const lo = main.entry_low ?? main.entry_high, hi = main.entry_high ?? main.entry_low;
     const word = chartAvgs().length ? "AI 추가 매수" : "AI 매수";  // 이미 가진 종목이면 '더 산다면'의 가격이다
-    if (lo != null) out.push(lo === hi ? { kind: "line", cls: "plan-buy", from: lo, text: `${word}가 ${p(lo)}` }
-      : { kind: "band", cls: "buy", from: Math.min(lo, hi), to: Math.max(lo, hi), text: `${word} 구간 ${p(Math.min(lo, hi))}~${p(Math.max(lo, hi))}` });
-    if (main.stop != null) out.push({ kind: "line", cls: "stop", from: main.stop, text: `철회 기준 ${p(main.stop)}` });
-    if (main.target != null) out.push({ kind: "line", cls: "target", from: main.target, text: `목표가 ${p(main.target)}` });
+    if (lo != null) out.push(lo === hi ? { key: "ai-buy", kind: "line", cls: "plan-buy", from: lo, text: `${word}가 ${p(lo)}` }
+      : { key: "ai-buy", kind: "band", cls: "buy", from: Math.min(lo, hi), to: Math.max(lo, hi), text: `${word} 구간 ${p(Math.min(lo, hi))}~${p(Math.max(lo, hi))}` });
+    if (main.stop != null) out.push({ key: "ai-stop", kind: "line", cls: "stop", from: main.stop, text: `철회 기준 ${p(main.stop)}` });
+    if (main.target != null) out.push({ key: "ai-target", kind: "line", cls: "target", from: main.target, text: `목표가 ${p(main.target)}` });
   } else {
     const w = lv.opinions.find((o) => o.watch_low != null || o.watch_high != null);
     if (w) {
       const a = w.watch_low ?? w.watch_high, b = w.watch_high ?? w.watch_low;
-      out.push({ kind: "band", cls: "watch", from: Math.min(a, b), to: Math.max(a, b), text: `리포트 관심 가격대 ${p(Math.min(a, b))}~${p(Math.max(a, b))}` });
+      out.push({ key: "ai-watch", kind: "band", cls: "watch", from: Math.min(a, b), to: Math.max(a, b), text: `리포트 관심 가격대 ${p(Math.min(a, b))}~${p(Math.max(a, b))}` });
     }
   }
   for (const pl of lv.plans) {
     const side = pl.side === "buy" ? "매수" : "매도";
-    if (pl.price_high != null) out.push({ kind: "line", cls: `plan-${pl.side}`, from: pl.price_high, text: `계획 #${pl.id} ${side} ${p(pl.price_high)} 이하` });
-    if (pl.price_low != null) out.push({ kind: "line", cls: `plan-${pl.side}`, from: pl.price_low, text: `계획 #${pl.id} ${side} ${p(pl.price_low)} 이상` });
+    if (pl.price_high != null) out.push({ key: `plan-${pl.id}`, kind: "line", cls: `plan-${pl.side}`, from: pl.price_high, text: `계획 #${pl.id} ${side} ${p(pl.price_high)} 이하` });
+    if (pl.price_low != null) out.push({ key: `plan-${pl.id}`, kind: "line", cls: `plan-${pl.side}`, from: pl.price_low, text: `계획 #${pl.id} ${side} ${p(pl.price_low)} 이상` });
   }
   return out;
 }
@@ -2620,7 +2650,8 @@ function drawChart() {
   const volTop = top + priceH + gap;
   const bw = (W - padL - padR) / (count + ahead);
   const X = (i) => padL + (i - start + 0.5) * bw;  // i: 날짜 순번 (n 이상이면 앞날짜)
-  const lines = CHART_LINES.filter((l) => layerOn(l.layer));
+  const lines = CHART_LINES.filter((l) => layerOn(l.layer) && !isHidden(lineKey(l)));
+  const cloudOn = ich && !isHidden("cloud");
 
   // 세로 범위: 보이는 캔들과 보이는 선·구름을 모두 담는다
   let lo = Infinity, hi = -Infinity;
@@ -2628,10 +2659,10 @@ function drawChart() {
   for (let i = start; i < n; i++) { take(d.ohlc[i][1]); take(d.ohlc[i][2]); }
   lines.forEach((l) => { for (let i = start; i < n; i++) take(d.lines[l.k][i]); });
   const cloudFrom = Math.max(0, start - CLOUD_SHIFT);
-  if (ich) for (let i = cloudFrom; i < n; i++) { take(d.cloud.a[i]); take(d.cloud.b[i]); }
-  const avgs = chartAvgs();
+  if (cloudOn) for (let i = cloudFrom; i < n; i++) { take(d.cloud.a[i]); take(d.cloud.b[i]); }
+  const avgs = chartAvgs().filter((a) => !isHidden(avgKey(a.account)));
   avgs.forEach(({ avg }) => { if (avg >= lo * 0.85 && avg <= hi * 1.15) take(avg); });
-  const aiLines = layerOn("ai") ? aiPriceLines(d) : [];
+  const aiLines = layerOn("ai") ? aiPriceLines(d).filter((l) => !isHidden(l.key)) : [];
   const cLo = lo, cHi = hi;
   aiLines.forEach((l) => [l.from, l.to].forEach((v) => { if (v != null && v >= cLo * 0.8 && v <= cHi * 1.2) take(v); }));
   const pad = (hi - lo) * 0.06 || hi * 0.02;
@@ -2671,7 +2702,7 @@ function drawChart() {
   }
 
   // 구름: 선행스팬 A·B 사이를 칠한다. 꼬이는 구간은 교차점에서 나눈다.
-  if (ich) {
+  if (cloudOn) {
     const up = [], down = [];
     const ca = d.cloud.a, cb = d.cloud.b;
     for (let i = cloudFrom; i < n - 1; i++) {
@@ -2745,7 +2776,7 @@ function drawChart() {
   // 평단·현재가 기준선과 오른쪽 표시
   const tags = [];
   const last = d.ohlc[n - 1][3];
-  const many = avgs.length > 1;
+  const many = chartAvgs().length > 1;
   for (const { account, avg } of avgs) {
     const name = many && account ? `${account} 평단` : "평단";  // 여러 계좌면 계좌 이름을 붙인다
     if (avg > lo && avg < hi) {
@@ -2837,20 +2868,25 @@ function drawLegend() {
   const n = d.dates.length, i = chart.cursor?.i ?? n - 1;
   const p = (v) => chartPrice(v, d);
   const items = CHART_LINES.filter((l) => layerOn(l.layer)).map((l) =>
-    `<span><svg width="18" height="10" aria-hidden="true" class="cplot-key">${LEGEND_KEY[l.k]}</svg>${l.label} <b>${p(d.lines[l.k][i])}</b></span>`);
+    lg(lineKey(l), `<svg width="18" height="10" aria-hidden="true" class="cplot-key">${LEGEND_KEY[l.k]}</svg>${l.label} <b>${p(d.lines[l.k][i])}</b>`));
   if (layerOn("ichimoku")) {
     // 오늘 자리의 구름 = 25일 전에 계산한 선행스팬
     const j = i - CLOUD_SHIFT, a = d.cloud.a[j], b = d.cloud.b[j];
-    items.push(`<span><svg width="18" height="10" aria-hidden="true"><rect width="18" height="10" rx="2" class="${a != null && b != null && a < b ? "cloud-down" : "cloud-up"}"/></svg>구름 <b>${a == null || b == null ? "-" : `${p(Math.min(a, b))}~${p(Math.max(a, b))}`}</b></span>`);
+    items.push(lg("cloud", `<svg width="18" height="10" aria-hidden="true"><rect width="18" height="10" rx="2" class="${a != null && b != null && a < b ? "cloud-down" : "cloud-up"}"/></svg>구름 <b>${a == null || b == null ? "-" : `${p(Math.min(a, b))}~${p(Math.max(a, b))}`}</b>`));
   }
   const avgs = chartAvgs();
-  avgs.forEach(({ account, avg }) => items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>${
-    avgs.length > 1 && account ? `${esc(account)} 평단` : "평단"} <b>${p(avg)}</b></span>`));
-  if (layerOn("ai")) for (const l of aiPriceLines(d)) {
-    const key = l.kind === "band" ? `<rect width="18" height="10" rx="2" class="lv-band ${l.cls}"/>` : `<line x1="0" x2="18" y1="5" y2="5" class="lv-line ${l.cls}"/>`;
-    items.push(`<span><svg width="18" height="10" aria-hidden="true">${key}</svg>${esc(l.text)}</span>`);
+  avgs.forEach(({ account, avg }) => items.push(lg(avgKey(account), `<svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>${
+    avgs.length > 1 && account ? `${esc(account)} 평단` : "평단"} <b>${p(avg)}</b>`)));
+  if (layerOn("ai")) {
+    const seen = new Set();
+    for (const l of aiPriceLines(d)) {
+      const key = l.kind === "band" ? `<rect width="18" height="10" rx="2" class="lv-band ${l.cls}"/>` : `<line x1="0" x2="18" y1="5" y2="5" class="lv-line ${l.cls}"/>`;
+      const text = seen.has(l.key) ? null : l.text;  // 같은 계획의 이상·이하 두 줄은 범례 한 칸
+      seen.add(l.key);
+      if (text) items.push(lg(l.key, `<svg width="18" height="10" aria-hidden="true">${key}</svg>${esc(text)}`));
+    }
   }
-  el.innerHTML = items.join("");
+  el.innerHTML = items.join("") + (chart.hidden.size ? `<button type="button" class="lg-reset" data-lk-reset>모두 보기</button>` : "");
 }
 
 function moveCursor(i, y = null) {
@@ -3385,12 +3421,12 @@ function drawToday(el) {
     });
   }
   // 어제 종가 기준선
-  if (td.prev_close != null) {
+  if (td.prev_close != null && !isHidden("prev")) {
     out.push(`<line class="td-prev" x1="${padL}" x2="${W - padR}" y1="${Y(td.prev_close)}" y2="${Y(td.prev_close)}"/>
       <text class="lv-t avg" x="${padL + 6}" y="${Y(td.prev_close) - 4}">어제 종가 ${chartPrice(td.prev_close, d)}</text>`);
   }
   // 평단 (보이는 범위 안에 있을 때만)
-  chartAvgs().filter(({ avg }) => avg > lo && avg < hi).forEach(({ account, avg }, _, all) => {
+  chartAvgs().filter(({ account, avg }) => avg > lo && avg < hi && !isHidden(avgKey(account))).forEach(({ account, avg }, _, all) => {
     out.push(`<line class="ref avg" x1="${padL}" x2="${W - padR}" y1="${Y(avg)}" y2="${Y(avg)}"/>
       <text class="lv-t avg" x="${W - padR - 6}" y="${Y(avg) - 4}" text-anchor="end">${all.length > 1 && account ? `${esc(account)} 평단` : "평단"} ${chartPrice(avg, d)}</text>`);
   });
@@ -3441,14 +3477,14 @@ function todayLegend(el) {
   const td = chart.today?.data, d = chart.data;
   if (!el || !td) { if (el) el.innerHTML = ""; return; }
   const items = [];
-  if (td.prev_close != null) items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="td-prev"/></svg>어제 종가 <b>${chartPrice(td.prev_close, d)}</b></span>`);
+  if (td.prev_close != null) items.push(lg("prev", `<svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="td-prev"/></svg>어제 종가 <b>${chartPrice(td.prev_close, d)}</b>`));
   items.push(`<span>오늘 최고 <b class="up">${chartPrice(td.high.price, d)}</b> (${td.high.time})</span>`, `<span>오늘 최저 <b class="down">${chartPrice(td.low.price, d)}</b> (${td.low.time})</span>`);
   const range = td.high.price - td.low.price;
   items.push(`<span>하루 등락 폭 <b>${chartPrice(range, d)}</b> (${((range / td.low.price) * 100).toFixed(1)}%)</span>`);
   const avgs = chartAvgs();
-  avgs.forEach(({ account, avg }) => items.push(`<span><svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>${avgs.length > 1 && account ? `${esc(account)} 평단` : "평단"} <b>${chartPrice(avg, d)}</b></span>`));
+  avgs.forEach(({ account, avg }) => items.push(lg(avgKey(account), `<svg width="18" height="10" aria-hidden="true"><line x1="0" x2="18" y1="5" y2="5" class="ref avg"/></svg>${avgs.length > 1 && account ? `${esc(account)} 평단` : "평단"} <b>${chartPrice(avg, d)}</b>`)));
   if (chart.meta.market === "US" || chart.meta.market === "INDEX") items.push(`<span class="quiet">시간은 한국 시간</span>`);
-  el.innerHTML = items.join("");
+  el.innerHTML = items.join("") + (chart.hidden.size ? `<button type="button" class="lg-reset" data-lk-reset>모두 보기</button>` : "");
 }
 </script>
 </body>

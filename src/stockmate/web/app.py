@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from stockmate import (
-    analysis, discovery, ideas, importers, intraday, markets, memory, performance, plans, portfolio, research, screenshots,
+    alerts, analysis, discovery, ideas, importers, intraday, markets, memory, performance, plans, portfolio, research, screenshots,
     symbols, sync, technical,
 )
 from stockmate.brokers.kis import KisError
@@ -61,6 +61,14 @@ def _build() -> dict[str, Any]:
 snapshots = SnapshotStore(_build, max_age=timedelta(seconds=20))
 runner = analysis.AnalysisRunner()
 weekly = discovery.WeeklyRunner(lambda: snapshots.get())
+
+
+def _alert_rows() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    with session_scope() as session:
+        return plans.plan_rows(session, prices)["open"], ideas.idea_rows(session, prices)["active"]
+
+
+watcher = alerts.AlertWatcher(_alert_rows)
 # 서버 메모리가 작으므로 질문에 답하거나 스크린샷을 읽는 Claude도 한 번에 하나만 띄운다.
 _ask_lock = threading.Lock()
 
@@ -71,6 +79,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # (한투 시세 29종목 ≈ 3초, 초당 20건 제한 안쪽)
     snapshots.keep_warm(active=timedelta(minutes=5), busy_every=20, idle_every=600)
     weekly.schedule()  # 매주 토요일 오전 8시 종목 발굴
+    watcher.start()  # 1분마다 계획·추천 가격 알림 (알림을 켠 기기가 있을 때만)
     # 검색 탭의 종목 목록(국내 약 4,000, 미국 약 7,000)을 미리 받아 둔다 (처음이면 30초쯤 걸린다)
     threading.Thread(target=lambda: (symbols.krx_names(), symbols.us_names()), daemon=True).start()
     yield
@@ -109,6 +118,22 @@ def _snapshot(fresh: bool = False) -> dict[str, Any]:
 def index() -> FileResponse:
     # 배포하면 바로 새 화면이 보이도록 브라우저가 매번 서버에 확인하게 한다 (바뀌지 않았으면 304)
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+# 웹 푸시용: 서비스 워커는 사이트 맨 위 경로에서 줘야 화면 전체를 맡을 수 있다
+@app.get("/sw.js")
+def service_worker() -> FileResponse:
+    return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest")
+def manifest() -> FileResponse:
+    return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/icon.png")
+def icon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "icon.png", media_type="image/png")
 
 
 @app.get("/api/portfolio")
@@ -303,6 +328,39 @@ def update_idea(idea_id: int, body: IdeaStatus) -> dict[str, Any]:
         if ideas.set_status(session, idea_id, body.status) is None:
             raise HTTPException(404, "추천을 찾을 수 없어요.")
     return get_ideas()
+
+
+# ── 가격 알림 (웹 푸시) ─────────────────────────────
+
+
+class PushSubscription(BaseModel):
+    endpoint: str = Field(min_length=10, max_length=1000, pattern="^https://")
+    keys: dict[str, str]
+    device: str = Field(default="", max_length=200)
+
+
+class PushEndpoint(BaseModel):
+    endpoint: str = Field(max_length=1000)
+
+
+@app.get("/api/push/key")
+def push_key() -> dict[str, str]:
+    return {"key": alerts.public_key()}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(body: PushSubscription) -> dict[str, Any]:
+    if not {"p256dh", "auth"} <= body.keys.keys():
+        raise HTTPException(400, "구독 정보가 이상해요.")
+    alerts.subscribe({"endpoint": body.endpoint, "keys": body.keys}, body.device)
+    sent = alerts.send(alerts.Alert("test", "가격 알림을 켰어요", "이미 조건에 든 건 빼고, 계획 가격이나 AI 매수 구간에 새로 닿으면 알려 드릴게요", "/#plans"), only=body.endpoint)
+    return {"ok": True, "test_sent": bool(sent)}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: PushEndpoint) -> dict[str, Any]:
+    alerts.unsubscribe(body.endpoint)
+    return {"ok": True}
 
 
 # ── 기간 성과 ─────────────────────────────────────

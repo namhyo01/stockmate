@@ -3,7 +3,8 @@
 - 웹 서버 스레드가 1분마다 확인한다 (알림을 켠 기기가 있을 때만).
 - 조건에 '새로 들어올 때'만 보낸다. 들어가 있는 동안은 다시 보내지 않고, 빠져나갔다 다시 들어와도
   같은 알림은 COOLDOWN 안에는 보내지 않는다 (구간 경계에서 오르내릴 때 알림이 쏟아지지 않게).
-- 조용한 시간(설정)에는 확인 자체를 쉰다. 그사이 조건에 들어와서 끝날 때까지 남아 있는 것은 끝난 뒤 첫 확인 때 보낸다.
+- 조용한 시간(설정)에는 급한 것(철회 기준 깨짐, 매도 계획 가격)만 바로 보내고, 나머지는 모아 뒀다가
+  조용한 시간이 끝나면 '밤사이 n건' 알림 하나로 묶어 보낸다 (아침 요약).
 - 푸시 서버 키(VAPID), 알림을 켠 기기 목록, 설정, 보낸 기록은 data/alerts/에 둔다.
 - 아이폰은 사파리에서 '홈 화면에 추가'한 대시보드에서만 웹 푸시를 받을 수 있다 (iOS 16.4 이상).
 """
@@ -37,6 +38,7 @@ class Alert:
     title: str
     body: str
     url: str  # 알림을 누르면 열 화면
+    urgent: bool = False  # 조용한 시간에도 바로 보낸다 (철회 기준 깨짐, 매도 계획 가격)
 
 
 def _price(value: float | None, currency: str) -> str:
@@ -69,6 +71,7 @@ def plan_alerts(rows: list[dict[str, Any]]) -> list[Alert]:
             title=f"{r['name']} {side} 계획 가격이에요",
             body=f"지금 {_price(r['price_now'], cur)} (계획 {_range(r['price_low'], r['price_high'], cur)}){where}",
             url="/#plans",
+            urgent=r["side"] == "sell",
         ))  # fmt: skip
     return out
 
@@ -80,7 +83,7 @@ def idea_alerts(rows: list[dict[str, Any]]) -> list[Alert]:
         cur, now = r["currency"], _price(r["price_now"], r["currency"])
         if r["below_stop"]:
             out.append(Alert(f"idea:{r['id']}:stop", f"{r['name']} 철회 기준을 깼어요",
-                             f"지금 {now} (철회 기준 {_price(r['stop'], cur)}). 종가로도 깨지면 추천을 거둬요", "/#ideas"))  # fmt: skip
+                             f"지금 {now} (철회 기준 {_price(r['stop'], cur)}). 종가로도 깨지면 추천을 거둬요", "/#ideas", urgent=True))  # fmt: skip
         elif r["hit_target"]:
             out.append(Alert(f"idea:{r['id']}:target", f"{r['name']} 목표가에 닿았어요",
                              f"지금 {now} (목표가 {_price(r['target'], cur)})", "/#ideas"))  # fmt: skip
@@ -222,19 +225,33 @@ def check(plan_rows: list[dict[str, Any]], idea_rows: list[dict[str, Any]], now:
     알림을 켜자마자 수십 개가 쏟아지지 않게.
     """
     now = now or dt.datetime.now()
-    if in_quiet(now, settings_()):
-        return []
+    quiet = in_quiet(now, settings_())
     current = plan_alerts(plan_rows) + idea_alerts(idea_rows)
     with _lock:
         state = _read("state.json", {})
         first = "active" not in state
         due = due_alerts(current, state, now)
+        if first:
+            due = []
+        held = state.setdefault("held", [])
+        if quiet:  # 급하지 않은 것은 모아 둔다
+            held += [{"title": a.title, "url": a.url} for a in due if not a.urgent]
+            due = [a for a in due if a.urgent]
+        elif held:
+            due.insert(0, digest(held))
+            state["held"] = []
         _write("state.json", state)
-    if first:
-        return []
     for alert in due:
         send(alert)
     return due
+
+
+def digest(held: list[dict[str, str]]) -> Alert:
+    """조용한 시간 동안 모아 둔 알림을 하나로 (아침 요약)."""
+    titles = [h["title"] for h in held]
+    body = " · ".join(titles[:4]) + (f" 외 {len(titles) - 4}건" if len(titles) > 4 else "")
+    url = "/#plans" if any(h["url"] == "/#plans" for h in held) else "/#ideas"
+    return Alert("digest", f"조용한 시간 동안 {len(titles)}건 있었어요", body, url)
 
 
 class AlertWatcher:
@@ -249,7 +266,7 @@ class AlertWatcher:
 
             while True:
                 try:
-                    if subscriptions() and not in_quiet(dt.datetime.now(), settings_()):
+                    if subscriptions():
                         plan_rows, idea_rows = self._rows()
                         for a in check(plan_rows, idea_rows):
                             log.info("알림 보냄: %s", a.title)

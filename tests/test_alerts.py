@@ -87,14 +87,27 @@ def test_in_quiet_wraps_midnight():
     assert not alerts.in_quiet(at(3), {**cfg, "quiet_end": "23:00"})  # 시작 = 끝이면 없음
 
 
-def test_quiet_hours_hold_until_end(tmp_path, monkeypatch):
+def test_quiet_hours_send_urgent_and_digest_in_morning(tmp_path, monkeypatch):
     monkeypatch.setattr(alerts, "DIR", tmp_path)
     sent = []
-    monkeypatch.setattr(alerts, "send", lambda a, only=None: sent.append(a.key) or 1)
+    monkeypatch.setattr(alerts, "send", lambda a, only=None: sent.append((a.key, a.title, a.body)) or 1)
     alerts.save_settings({"quiet_on": True, "quiet_start": "23:00", "quiet_end": "08:00", "other": 1})
     assert "other" not in alerts.settings_()
     night = dt.datetime(2026, 11, 9, 22, 50)
     alerts.check([], [], night)  # 첫 확인 (기억만)
-    assert alerts.check([plan(1, "met")], [], night + dt.timedelta(hours=2)) == []  # 새벽 1시: 쉰다
-    alerts.check([plan(1, "met")], [], night + dt.timedelta(hours=9, minutes=15))  # 8시 5분: 남아 있으니 보낸다
-    assert sent == ["plan:1"]
+    at = lambda h: night + dt.timedelta(hours=h)  # noqa: E731
+    # 새벽: 매수 계획·매수 구간은 모아 두고, 매도 계획·철회 기준은 바로
+    alerts.check([plan(1, "met"), plan(2, "met", side="sell", name="SK하이닉스")], [idea(5, in_zone=True)], at(2))
+    alerts.check([plan(1, "met")], [idea(5, in_zone=True), idea(6, below_stop=True, name="코웨이")], at(3))
+    assert [k for k, _, _ in sent] == ["plan:2", "idea:6:stop"]
+    # 아침: 밤사이 것은 (지금 빠져나갔어도) 하나로 묶어서
+    alerts.check([], [], at(9.5))
+    assert sent[2] == ("digest", "조용한 시간 동안 2건 있었어요", "엔비디아 매수 계획 가격이에요 · 코스트코 AI 매수 구간이에요")
+    alerts.check([], [], at(9.6))
+    assert len(sent) == 3
+
+
+def test_digest_truncates():
+    held = [{"title": f"t{i}", "url": "/#ideas"} for i in range(6)]
+    d = alerts.digest(held)
+    assert d.body == "t0 · t1 · t2 · t3 외 2건" and d.url == "/#ideas"

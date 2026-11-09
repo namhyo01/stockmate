@@ -3,7 +3,8 @@
 - 웹 서버 스레드가 1분마다 확인한다 (알림을 켠 기기가 있을 때만).
 - 조건에 '새로 들어올 때'만 보낸다. 들어가 있는 동안은 다시 보내지 않고, 빠져나갔다 다시 들어와도
   같은 알림은 COOLDOWN 안에는 보내지 않는다 (구간 경계에서 오르내릴 때 알림이 쏟아지지 않게).
-- 푸시 서버 키(VAPID), 알림을 켠 기기 목록, 보낸 기록은 data/alerts/에 둔다.
+- 조용한 시간(설정)에는 확인 자체를 쉰다. 그사이 조건에 들어와서 끝날 때까지 남아 있는 것은 끝난 뒤 첫 확인 때 보낸다.
+- 푸시 서버 키(VAPID), 알림을 켠 기기 목록, 설정, 보낸 기록은 data/alerts/에 둔다.
 - 아이폰은 사파리에서 '홈 화면에 추가'한 대시보드에서만 웹 푸시를 받을 수 있다 (iOS 16.4 이상).
 """
 
@@ -87,6 +88,30 @@ def idea_alerts(rows: list[dict[str, Any]]) -> list[Alert]:
             out.append(Alert(f"idea:{r['id']}:zone", f"{r['name']} AI 매수 구간이에요",
                              f"지금 {now} (사는 가격대 {_range(r['entry_low'], r['entry_high'], cur)})", "/#ideas"))  # fmt: skip
     return out
+
+
+DEFAULT_SETTINGS = {"quiet_on": False, "quiet_start": "23:00", "quiet_end": "08:00"}
+
+
+def settings_() -> dict[str, Any]:
+    return {**DEFAULT_SETTINGS, **_read("settings.json", {})}
+
+
+def save_settings(values: dict[str, Any]) -> dict[str, Any]:
+    with _lock:
+        merged = {**settings_(), **{k: v for k, v in values.items() if k in DEFAULT_SETTINGS}}
+        _write("settings.json", merged)
+    return merged
+
+
+def in_quiet(now: dt.datetime, cfg: dict[str, Any]) -> bool:
+    """조용한 시간인지. 23:00~08:00처럼 자정을 넘는 구간도 된다. 시작과 끝이 같으면 조용한 시간이 없다."""
+    if not cfg.get("quiet_on"):
+        return False
+    start, end, t = cfg["quiet_start"], cfg["quiet_end"], now.strftime("%H:%M")
+    if start == end:
+        return False
+    return start <= t < end if start < end else t >= start or t < end
 
 
 def due_alerts(current: list[Alert], state: dict[str, Any], now: dt.datetime) -> list[Alert]:
@@ -196,11 +221,14 @@ def check(plan_rows: list[dict[str, Any]], idea_rows: list[dict[str, Any]], now:
     처음 확인할 때는 이미 조건에 든 것(오래전에 철회 기준을 깬 추천 등)을 기억만 하고 보내지 않는다.
     알림을 켜자마자 수십 개가 쏟아지지 않게.
     """
+    now = now or dt.datetime.now()
+    if in_quiet(now, settings_()):
+        return []
     current = plan_alerts(plan_rows) + idea_alerts(idea_rows)
     with _lock:
         state = _read("state.json", {})
         first = "active" not in state
-        due = due_alerts(current, state, now or dt.datetime.now())
+        due = due_alerts(current, state, now)
         _write("state.json", state)
     if first:
         return []
@@ -221,7 +249,7 @@ class AlertWatcher:
 
             while True:
                 try:
-                    if subscriptions():
+                    if subscriptions() and not in_quiet(dt.datetime.now(), settings_()):
                         plan_rows, idea_rows = self._rows()
                         for a in check(plan_rows, idea_rows):
                             log.info("알림 보냄: %s", a.title)

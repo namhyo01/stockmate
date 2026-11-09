@@ -74,3 +74,27 @@ def test_public_key_is_raw_p256_point(tmp_path, monkeypatch):
     monkeypatch.setattr(alerts, "DIR", tmp_path)
     key = alerts.public_key()
     assert len(key) == 87 and key == alerts.public_key()  # 65바이트 → base64url 87자, 한 번 만든 키를 계속 쓴다
+
+
+def test_in_quiet_wraps_midnight():
+    cfg = {"quiet_on": True, "quiet_start": "23:00", "quiet_end": "08:00"}
+    at = lambda h, m=0: dt.datetime(2026, 11, 9, h, m)  # noqa: E731
+    assert alerts.in_quiet(at(23), cfg) and alerts.in_quiet(at(3), cfg) and alerts.in_quiet(at(7, 59), cfg)
+    assert not alerts.in_quiet(at(8), cfg) and not alerts.in_quiet(at(22, 59), cfg)
+    day = {"quiet_on": True, "quiet_start": "12:00", "quiet_end": "13:00"}
+    assert alerts.in_quiet(at(12, 30), day) and not alerts.in_quiet(at(13), day)
+    assert not alerts.in_quiet(at(3), {**cfg, "quiet_on": False})
+    assert not alerts.in_quiet(at(3), {**cfg, "quiet_end": "23:00"})  # 시작 = 끝이면 없음
+
+
+def test_quiet_hours_hold_until_end(tmp_path, monkeypatch):
+    monkeypatch.setattr(alerts, "DIR", tmp_path)
+    sent = []
+    monkeypatch.setattr(alerts, "send", lambda a, only=None: sent.append(a.key) or 1)
+    alerts.save_settings({"quiet_on": True, "quiet_start": "23:00", "quiet_end": "08:00", "other": 1})
+    assert "other" not in alerts.settings_()
+    night = dt.datetime(2026, 11, 9, 22, 50)
+    alerts.check([], [], night)  # 첫 확인 (기억만)
+    assert alerts.check([plan(1, "met")], [], night + dt.timedelta(hours=2)) == []  # 새벽 1시: 쉰다
+    alerts.check([plan(1, "met")], [], night + dt.timedelta(hours=9, minutes=15))  # 8시 5분: 남아 있으니 보낸다
+    assert sent == ["plan:1"]

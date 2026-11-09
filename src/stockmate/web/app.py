@@ -357,6 +357,22 @@ def push_subscribe(body: PushSubscription) -> dict[str, Any]:
     return {"ok": True, "test_sent": bool(sent)}
 
 
+class PushSettings(BaseModel):
+    quiet_on: bool
+    quiet_start: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    quiet_end: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+@app.get("/api/push/settings")
+def push_settings() -> dict[str, Any]:
+    return alerts.settings_()
+
+
+@app.put("/api/push/settings")
+def save_push_settings(body: PushSettings) -> dict[str, Any]:
+    return alerts.save_settings(body.model_dump())
+
+
 @app.post("/api/push/unsubscribe")
 def push_unsubscribe(body: PushEndpoint) -> dict[str, Any]:
     alerts.unsubscribe(body.endpoint)

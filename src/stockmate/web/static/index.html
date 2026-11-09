@@ -1589,8 +1589,15 @@ function reloadIfIdle() {
     || [...document.querySelectorAll("button")].some((b) => b.disabled && b.querySelector(".spin"));
   if (needsReload && !busyNow) location.reload();
 }
-async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
+// timeout(ms): 자동 갱신용. 폰이 잠들었다 깨거나 망이 바뀌면 요청이 끝나지 않고 멈춰 있을 수 있어서,
+// 기다리다 끊어야 다음 갱신이 새 연결로 다시 시도한다. AI처럼 오래 걸리는 요청에는 쓰지 않는다.
+async function api(path, { timeout, ...opts } = {}) {
+  const ctl = timeout ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), timeout);
+  let res;
+  try { res = await fetch(path, { headers: { "content-type": "application/json" }, signal: ctl?.signal, ...opts }); }
+  catch (e) { throw ctl?.signal.aborted ? new Error("서버가 응답하지 않아요") : e; }
+  finally { clearTimeout(timer); }
   notePageVersion(res);
   if (!res.ok) {
     let msg = `${res.status}`;
@@ -1615,7 +1622,7 @@ async function loadPrices() {
   if (loading) return;
   loading = true;
   try {
-    const data = await api("/api/portfolio");
+    const data = await api("/api/portfolio", { timeout: 15_000 });
     // 같은 스냅샷이면 다시 그리지 않는다 (펼친 상세나 스크롤이 흔들리지 않게)
     if (data.generated_at !== state.data?.generated_at) render(data);
     // 서버가 오래된 스냅샷을 먼저 준 경우: 뒤에서 새로 만드는 중이니 잠시 뒤 다시 받는다
@@ -1626,9 +1633,11 @@ async function loadPrices() {
 }
 async function syncAll({ silent = false } = {}) {
   const btn = $("refresh");
+  if (silent && syncAll.running) return;  // 앞의 자동 동기화가 아직 안 끝났으면 겹쳐 보내지 않는다
+  syncAll.running = true;
   if (!silent) busy(btn, true, "새로고침 중");
   try {
-    const res = await api(silent ? "/api/refresh" : "/api/refresh?force=true", { method: "POST" });
+    const res = await api(silent ? "/api/refresh" : "/api/refresh?force=true", { method: "POST", timeout: 40_000 });
     state.lastSync = Date.now();
     render(res.snapshot);
     // 자동 동기화(1분마다)의 같은 경고·오류는 10분에 한 번만 띄운다 (일시적인 호출 한도 같은 것)
@@ -1639,8 +1648,8 @@ async function syncAll({ silent = false } = {}) {
       toast(m.text, m.level === "success" ? "info" : m.level);
     });
     if (!silent) toast("잔고와 시세를 새로고침했어요");
-  } catch (e) { if (!silent) toast(`새로고침하지 못했어요: ${e.message}`, "error"); }
-  finally { if (!silent) busy(btn, false); }
+  } catch (e) { if (!silent) toast(`새로고침하지 못했어요: ${e.message}`, "error"); else loadPrices(); }
+  finally { syncAll.running = false; if (!silent) busy(btn, false); }
 }
 $("refresh").addEventListener("click", () => syncAll());
 
@@ -1649,7 +1658,7 @@ $("refresh").addEventListener("click", () => syncAll());
 function tick() {
   if (needsReload) reloadIfIdle();
   if (document.hidden || $("refresh").disabled) return;
-  if (Date.now() - state.lastSync > 60_000) syncAll({ silent: true }); else loadPrices();
+  if (Date.now() - state.lastSync > 60_000 && !syncAll.running) syncAll({ silent: true }); else loadPrices();
   if (state.view === "plans" && !plan.busy) loadPlans();
 }
 setInterval(tick, 20_000);
@@ -1841,7 +1850,7 @@ const SIDE = { buy: { label: "매수", color: "var(--up)" }, sell: { label: "매
 const SOURCE = { chat: "대화", analysis: "분석 리포트", rebuild: "AI 정리", search: "검색 탭" };
 async function loadPlans() {
   if (!plan.data) $("plan-accts").innerHTML = `<div class="plan-empty"><span class="spin"></span> 계획과 지금 시세를 불러오는 중이에요</div>`;
-  try { plan.data = await api("/api/plans"); renderPlans(); } catch (e) { toast(`계획을 불러오지 못했어요: ${e.message}`, "error"); }
+  try { plan.data = await api("/api/plans", { timeout: 30_000 }); renderPlans(); } catch (e) { toast(`계획을 불러오지 못했어요: ${e.message}`, "error"); }
 }
 function accountColor(name) {
   const a = state.data?.accounts.find((x) => x.name === name);
@@ -3056,7 +3065,7 @@ document.addEventListener("keydown", (e) => {
 });
 async function loadTicker() {
   if (document.hidden) return;
-  try { renderTicker((await api("/api/markets")).items); } catch { /* 띠는 없어도 된다 */ }
+  try { renderTicker((await api("/api/markets", { timeout: 15_000 })).items); } catch { /* 띠는 없어도 된다 */ }
 }
 loadTicker();
 setInterval(loadTicker, 30000);

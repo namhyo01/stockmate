@@ -6,6 +6,11 @@ services:
     container_name: stockmate
     restart: unless-stopped
     env_file: .env
+    # 맥의 DNS 캐시를 거치지 않는다: 인터넷이 잠깐 끊겼다 돌아오면 맥이 "없는 주소"라는 답을 한동안 기억해서
+    # 한투 API 주소만 계속 못 찾은 적이 있다 (2026-11-10)
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     ports:
       - "127.0.0.1:8000:8000"   # 외부 공개는 tailscale serve로만
     volumes:

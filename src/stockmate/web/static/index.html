@@ -786,6 +786,17 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
 .ctool .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--sunken); border-radius: 999px; }
 .ctool .seg .tab { padding: 5px 11px; font-size: 13px; }
 .ctool .seg .tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+/* 차트 창 맨 위 "내 보유": 계좌마다 수량·평단·평가·손익·오늘 */
+.mypos { display: grid; gap: 8px; margin-bottom: 14px; }
+.mypos .acc { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.mypos .acc-h { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); margin-bottom: 6px; }
+.mypos .acc-h i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+.mypos dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px 14px; margin: 0; font-variant-numeric: tabular-nums; }
+.mypos dt { font-size: 11.5px; color: var(--ink-3); }
+.mypos dd { margin: 1px 0 0; font-size: 14px; font-weight: 650; }
+.mypos dd small { display: block; font-size: 12px; font-weight: 600; }
+.map .tile { cursor: pointer; }
+.map .tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; z-index: 2; }
 .cread { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-height: 24px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .cread b { color: var(--ink); font-size: 18px; font-weight: 750; }
 .cread .k { color: var(--ink-3); margin-right: 3px; }
@@ -1241,6 +1252,7 @@ function renderMap(data) {
       const w = t.w - GAP, h = t.h - GAP;
       const big = w > 150 && h > 70, showName = w > 54 && h > 36, showPct = w > 38 && h > 20;
       html += `<div class="tile${big ? " big" : ""}" style="left:${t.x}px;top:${t.y}px;width:${w}px;height:${h}px;--f:${fill};--t:${textOn(fill)}"
+        role="button" tabindex="0" aria-label="${esc(p.name)} ${esc(p.account)} 상세 보기" ${chartAttrs(p.market, p.symbol, p.name, p.avg_cost)}
         data-tip="<b>${esc(p.name)}</b>\n${esc(p.account)} 계좌\n평가 ${won(p.value_krw)}원 (비중 ${p.weight?.toFixed(1)}%)\n손익 ${signed(p.pnl_krw)}원, ${pct(p.pnl_pct)}\n오늘 ${signed(p.day_pnl_krw)}원, ${pct(p.day_change_pct)}">
         ${showName ? `<span class="nm">${esc(p.name)}</span>` : ""}${showPct ? `<span class="pc">${pct(rate, mode === MAP_MODES.day ? 2 : 1)}</span>` : ""}</div>`;
     }
@@ -1265,6 +1277,8 @@ function render(data) {
   const assetsFlash = state.data && state.data.total.assets !== data.total.assets
     ? (data.total.assets > state.data.total.assets ? "flash-up" : "flash-down") : "";
   state.data = data;
+  const mypos = chart.root && cq("mypos");
+  if (mypos) mypos.innerHTML = myPosition();
   const t = data.total;
   const time = new Date(data.generated_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   $("live-text").textContent = `${time} 시세${data.fx.USD ? `, 1달러 ${data.fx.USD.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}`;
@@ -1540,6 +1554,9 @@ $("map-mode").addEventListener("click", (e) => {
   state.mapMode = b.dataset.mode;
   try { localStorage.setItem("mapMode", state.mapMode); } catch {}
   renderMapMode();
+});
+$("map").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.closest(".tile")) { e.preventDefault(); e.target.closest(".tile").click(); }
 });
 function renderMapMode() {
   $("map-mode").querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mapMode)));
@@ -2594,6 +2611,7 @@ async function loadChartInto(root, meta) {
   }
 }
 async function openChart(meta) {
+  tip.style.opacity = 0;  // 지도 칸을 눌렀을 때 떠 있던 툴팁을 치운다
   $("chart-title").textContent = meta.name;
   $("chart-sym").textContent = meta.market === "INDEX" ? "시장 지표" : `${meta.symbol} · ${meta.market === "KRX" ? "국내" : "미국"}`;
   if (!$("chart").open) $("chart").showModal();
@@ -2606,9 +2624,25 @@ $("chart").addEventListener("close", () => {
   if (state.view === "search" && search.chart) mountChart($("search-chart"), search.chart.meta, search.chart.data);  // 검색 탭 차트로 돌아간다
 });
 
+// 이 종목을 가진 계좌마다 수량·평단·현재가·평가·손익·오늘. 안 가진 종목이면 빈칸.
+function myPosition(meta = chart.meta) {
+  if (!meta || meta.market === "INDEX") return "";
+  const held = (state.data?.positions || []).filter((p) => p.market === meta.market && p.symbol === meta.symbol);
+  return held.map((p) => `<div class="acc">
+    <div class="acc-h" style="--c:${acctColor(p.account_id)}"><i></i>내 보유 · ${esc(p.account)}${p.strategy_label ? ` · ${esc(p.strategy_label)}` : ""}</div>
+    <dl>
+      <div><dt>수량</dt><dd>${qty(p.quantity)}주</dd></div>
+      <div><dt>평단</dt><dd>${price(p.avg_cost, p.currency)}</dd></div>
+      <div><dt>현재가</dt><dd>${price(p.price, p.currency)}</dd></div>
+      <div><dt>평가금</dt><dd>${won(p.value_krw)}원<small class="quiet">비중 ${p.weight?.toFixed(1) ?? "-"}%</small></dd></div>
+      <div><dt>손익</dt><dd class="${tone(p.pnl_krw)}">${signed(p.pnl_krw)}원<small>${pct(p.pnl_pct)}</small></dd></div>
+      <div><dt>오늘</dt><dd class="${tone(p.day_pnl_krw)}">${signed(p.day_pnl_krw)}원<small>${pct(p.day_change_pct)}</small></dd></div>
+    </dl></div>`).join("");
+}
 function renderChartShell() {
   const d = chart.data;
   chart.root.innerHTML = `
+    <div class="mypos" data-c="mypos">${myPosition()}</div>
     <div class="ctool">
       <div class="seg" role="group" aria-label="기간">${CHART_RANGES.map(([n, label]) =>
         `<button type="button" class="tab" data-crange="${n}" aria-pressed="${chart.range === n}">${label}</button>`).join("")}</div>

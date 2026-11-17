@@ -522,6 +522,20 @@ a.btn { text-decoration: none; }
 .disc-box.score h3 { margin: 4px 0 4px; font-size: 15px; }
 .score-sum { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 6px 0 10px; font-size: 13.5px; color: var(--ink-2); }
 .score-sum b { color: var(--ink); font-size: 16px; font-weight: 750; margin-right: 4px; font-variant-numeric: tabular-nums; }
+/* AI 모의투자 */
+.paper-rules { margin: 8px 0 4px; padding-left: 18px; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+.paper-group { margin-top: 22px; }
+.paper-group h3 { font-size: 15px; margin: 0 0 6px; }
+.paper-group h3 .quiet { font-weight: 500; font-size: 13px; }
+.paper-tbl td .sub { display: block; font-size: 11.5px; color: var(--ink-3); }
+.paper-tbl td .nm { font-weight: 650; }
+.paper-tbl .res { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-2); }
+.paper-tbl .res.target { background: color-mix(in srgb, var(--up) 14%, transparent); color: var(--up); }
+.paper-tbl .res.stop { background: color-mix(in srgb, var(--down) 14%, transparent); color: var(--down); }
+#paper-chart .pl.bench { stroke: var(--ink-3); stroke-dasharray: 4 3; stroke-width: 1.6; }
+.paper-legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.paper-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--c); vertical-align: middle; margin-right: 5px; }
+.paper-legend i.dash { border-top-style: dashed; }
 .score-tbl { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
 .score-tbl th, .score-tbl td { border-top: 1px solid var(--line); padding: 7px 8px; text-align: right; white-space: nowrap; }
 .score-tbl th { border-top: 0; color: var(--ink-3); font-weight: 600; }
@@ -903,6 +917,7 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <a href="#portfolio" role="tab" data-view="portfolio" aria-selected="true">포트폴리오</a>
       <a href="#plans" role="tab" data-view="plans" aria-selected="false">계획</a>
       <a href="#ideas" role="tab" data-view="ideas" aria-selected="false">추천</a>
+      <a href="#paper" role="tab" data-view="paper" aria-selected="false">모의투자</a>
       <a href="#search" role="tab" data-view="search" aria-selected="false">검색</a>
       <a href="#ai" role="tab" data-view="claude" aria-selected="false">AI</a>
       <a href="#analysis" role="tab" data-view="analysis" aria-selected="false">분석</a>
@@ -1017,6 +1032,31 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
       <div class="tbl"><table class="score-tbl" id="disc-stats-tbl"></table></div>
     </details>
     <details class="plan-closed" id="idea-old" hidden><summary id="idea-old-sum">관심 없음으로 넘긴 종목</summary><div id="idea-old-list"></div></details>
+  </section>
+  </main>
+
+  <main class="view" id="view-paper" hidden>
+  <section>
+    <div class="plan-head">
+      <div><h2>AI 모의투자</h2>
+        <p class="quiet">추천 탭의 추천을 AI가 말한 그대로 따랐다면 어떻게 됐을지 일봉으로 계산해요. 추천마다 100만원씩, 실제 매매는 하지 않아요.</p></div>
+    </div>
+    <div class="perf-grid" id="paper-grid">
+      <div class="perf-main" id="paper-main"><div class="loading"><span class="spin"></span> 추천 종목들의 일봉을 불러오는 중이에요</div></div>
+      <div class="perf-chart" id="paper-chart"></div>
+      <div class="perf-movers" id="paper-side"></div>
+    </div>
+    <details class="disc-box">
+      <summary>계산 규칙</summary>
+      <ul class="paper-rules">
+        <li><b>사기</b>: 추천한 다음 거래일부터 봐요. 매수 구간이 있으면 가격이 구간 위쪽 가격까지 내려온 첫날 사요 (그날 시가가 더 낮으면 시가). 구간이 없으면 다음 날 시가에 사요.</li>
+        <li><b>기다리기</b>: 스윙은 10거래일, 장기는 40거래일 안에 매수 구간에 안 오면 안 사요. 그 전에 철회 기준을 깨면 사지 않아요.</li>
+        <li><b>팔기</b>: 종가가 철회 기준 아래면 그 종가에, 고가가 목표가에 닿으면 목표가에 팔아요. 같은 날 둘 다면 철회 기준이 먼저라고 봐요. 스윙은 60거래일이 지나면 팔고, 장기는 기준에 닿을 때까지 들고 있어요.</li>
+        <li>AI가 같은 종목을 새로 추천하면 예전 추천은 그날 종가에 팔고 새 추천으로 다시 시작해요. '관심 없음'으로 넘긴 추천도 AI 말대로 계산해요.</li>
+        <li>비교는 같은 날 같은 돈을 지수(국내 KODEX 200, 미국 SPY)에 넣었다면이에요. 수수료·세금·환율 변동은 넣지 않았어요. 일봉으로 계산해서 실제 체결과 다를 수 있어요.</li>
+      </ul>
+    </details>
+    <div id="paper-trades"></div>
   </section>
   </main>
 
@@ -2286,7 +2326,7 @@ $("view-ideas").addEventListener("click", async (e) => {
 });
 
 /* ── 화면 탭 (#portfolio, #plans, #ideas, #claude, #analysis) ── */
-const VIEWS = ["portfolio", "plans", "ideas", "search", "claude", "analysis"];
+const VIEWS = ["portfolio", "plans", "ideas", "paper", "search", "claude", "analysis"];
 function showView(view) {
   if (!VIEWS.includes(view)) view = "portfolio";
   const changed = state.view !== view;
@@ -2299,6 +2339,7 @@ function showView(view) {
   if (view === "portfolio") setTimeout(() => (perf.data ? renderPerf() : null, loadPerf()));
   if (view === "plans") loadPlans();
   if (view === "ideas") { loadIdeas(); loadDiscovery(); }
+  if (view === "paper") setTimeout(loadPaper);  // 처음 열 때는 아래쪽 코드가 준비된 뒤에
   if (view === "search") setTimeout(enterSearch);  // 처음 열 때는 검색 코드(아래쪽)가 준비된 뒤에
   if (view === "claude") {
     (chat.loaded ? Promise.resolve() : loadChat()).then(() => { scrollToBottom(); if (matchMedia("(pointer: fine)").matches) $("question").focus(); });
@@ -3546,6 +3587,85 @@ function renderPerf() {
     <h4>많이 내린 종목</h4>${w.losers.slice(0, 4).map(row).join("") || `<div class="mv quiet">없어요</div>`}`;
 }
 addEventListener("resize", () => { if (perf.data && state.view === "portfolio") renderPerf(); });
+
+/* ── AI 모의투자: 추천을 AI 말대로 따랐다면 ─────────── */
+const paperState = { data: null, at: 0 };
+async function loadPaper() {
+  if (paperState.data) renderPaper();
+  if (Date.now() - paperState.at < 5 * 60_000) return;  // 일봉 기준이라 5분에 한 번이면 충분하다
+  $("paper-grid").classList.add("loading");
+  try {
+    paperState.data = await api("/api/paper"); paperState.at = Date.now();
+    if (state.view === "paper") renderPaper();
+  } catch (e) { $("paper-main").innerHTML = `<div class="quiet">모의투자를 계산하지 못했어요: ${esc(e.message)}</div>`; }
+  finally { $("paper-grid").classList.remove("loading"); }
+}
+function renderPaper() {
+  const d = paperState.data, s = d.summary;
+  if (!s.ideas) { $("paper-main").innerHTML = `<div class="quiet">아직 추천이 없어요. 추천 탭에 추천이 쌓이면 여기서 계산해요.</div>`; return; }
+  const gap = s.pct == null || s.bench_pct == null ? null : s.pct - s.bench_pct;
+  $("paper-main").innerHTML = `<div class="perf-big ${tone(s.pnl)}">${signed(s.pnl)}원</div>
+    <div class="perf-pct ${tone(s.pct)}">${pct(s.pct)}</div>
+    <div class="perf-sub">산 추천 ${s.bought}개 × 100만원 = ${man(s.invested)}원<br>판 거래에서 확정된 손익 <b class="${tone(s.realized)}">${signed(s.realized)}원</b></div>
+    <div class="perf-cmp"><div class="quiet" style="font-size:12px">같은 날 같은 돈을 지수에 넣었다면</div>
+      <div><span>지수</span><b class="${tone(s.bench_pnl)}">${signed(s.bench_pnl)}원 (${pct(s.bench_pct)})</b></div>
+      ${gap == null ? "" : `<div><span>지수보다</span><b class="${tone(gap)}">${gap > 0 ? "+" : "−"}${Math.abs(gap).toFixed(1)}%p</b></div>`}
+      <div><span>지수를 이긴 추천</span><b>${s.beat} / ${s.bought}</b></div></div>`;
+  $("paper-side").innerHTML = `<h4>추천 ${s.ideas}개</h4>
+    ${[["들고 있는 중", s.holding], ["판 거래", `${s.closed}개 (이익 ${s.wins}개)`], ["목표가 도달", s.targets], ["철회 기준 이탈", s.stops],
+       ["매수 구간을 기다리는 중", s.waiting], ["안 산 추천", s.skipped]].map(([k, v]) =>
+      `<div class="mv"><span>${k}</span><b>${typeof v === "number" ? `${v}개` : v}</b></div>`).join("")}
+    ${d.missing.length ? `<p class="quiet" style="font-size:12px">일봉이 없어 뺀 종목: ${d.missing.map(esc).join(", ")}</p>` : ""}`;
+  drawPaperCurve(d.curve);
+  // 추천 하나하나: 들고 있는 중 / 판 거래 / 기다리는 중 / 안 산 추천
+  const groups = [
+    ["들고 있는 중", (t) => t.status === "holding", "지금 가격 기준"],
+    ["판 거래", (t) => ["target", "stop", "time", "replaced"].includes(t.status), ""],
+    ["매수 구간을 기다리는 중", (t) => t.status === "waiting", "아직 사지 않았어요"],
+    ["안 산 추천", (t) => ["expired", "cancelled", "replaced_before"].includes(t.status), "AI 말대로라면 사지 않았을 추천"],
+  ];
+  const md = (iso) => iso ? `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}` : "-";
+  const zone = (t) => t.entry_low && t.entry_high ? `${price(t.entry_low, t.currency)}~${price(t.entry_high, t.currency)}` : t.entry_high || t.entry_low ? `${price(t.entry_high || t.entry_low, t.currency)} 이하` : "다음 날 시가";
+  const row = (t) => `<tr>
+    <td class="l"><button type="button" class="nlink nm" ${chartAttrs(t.market, t.symbol, t.name)}>${esc(t.name)}</button>
+      <span class="sub">${md(t.created_at)} 추천 · ${t.horizon === "long" ? "장기" : "스윙"} · 사는 가격 ${zone(t)}</span></td>
+    <td>${t.entry ? `${price(t.entry, t.currency)}<span class="sub">${md(t.entry_date)} 삼</span>` : "-"}</td>
+    <td>${t.exit ? `${price(t.exit, t.currency)}<span class="sub">${md(t.exit_date)} 팖</span>` : t.price_now ? `${price(t.price_now, t.currency)}<span class="sub">지금</span>` : "-"}</td>
+    <td class="${tone(t.ret)}">${t.ret == null ? "-" : `${pct(t.ret)}<span class="sub">${signed(t.pnl, man)}원</span>`}</td>
+    <td>${t.bench_ret == null ? "-" : `${pct(t.bench_ret)}<span class="sub ${tone(t.excess)}">${t.excess > 0 ? "+" : "−"}${Math.abs(t.excess).toFixed(1)}%p</span>`}</td>
+    <td class="l"><span class="res ${t.status}">${esc(t.status_label)}</span></td></tr>`;
+  $("paper-trades").innerHTML = groups.map(([title, test, note]) => {
+    const items = d.trades.filter(test);
+    if (!items.length) return "";
+    return `<div class="paper-group"><h3>${title} <span class="quiet">${items.length}개${note ? ` · ${note}` : ""}</span></h3>
+      <div class="tbl"><table class="score-tbl paper-tbl"><thead><tr><th>종목</th><th>산 가격</th><th>판 가격</th><th>수익률</th><th>지수</th><th class="l">결과</th></tr></thead>
+      <tbody>${items.map(row).join("")}</tbody></table></div></div>`;
+  }).join("");
+}
+// 날마다 누적 손익: AI 추천(실선)과 같은 돈을 지수에 넣었을 때(점선)
+function drawPaperCurve(curve) {
+  const el = $("paper-chart");
+  if (!curve.length) { el.innerHTML = `<div class="quiet">아직 산 추천이 없어요.</div>`; return; }
+  const W = el.clientWidth - 36 || 400, H = 190, padL = 6, padR = 6, top = 14, bottom = 24;
+  const all = curve.flatMap((c) => [c.pnl, c.bench, 0]), lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
+  const n = curve.length;
+  const X = (i) => padL + (i / Math.max(1, n - 1)) * (W - padL - padR);
+  const Y = (v) => top + (1 - (v - lo) / span) * (H - top - bottom);
+  const line = (k) => curve.map((c, i) => `${X(i).toFixed(1)},${Y(c[k]).toFixed(1)}`).join(" ");
+  const last = curve.at(-1), cls = tone(last.pnl), step = Math.max(1, Math.round((n - 1) / 5));
+  const hitW = Math.max(4, (W - padL - padR) / Math.max(1, n - 1));
+  const md = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
+  const hits = curve.map((c, i) => `<rect class="hit" x="${X(i) - hitW / 2}" y="${top - 8}" width="${hitW}" height="${H - top}"
+      data-tip="${esc(`<b>${md(c.date)}</b>\nAI 추천 ${signed(c.pnl)}원\n지수 ${signed(c.bench)}원\n산 추천 ${c.invested / 1e6}개`)}"/>
+    ${(i % step === 0 && n - 1 - i >= step / 2) || i === n - 1 ? `<text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${i === n - 1 ? "지금" : md(c.date)}</text>` : ""}`).join("");
+  el.innerHTML = `<div class="paper-legend"><span><i style="--c:var(--${cls === "down" ? "down" : "up"})"></i>AI 추천</span><span><i class="dash" style="--c:var(--ink-3)"></i>지수에 넣었다면</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="AI 추천 누적 손익 ${signed(last.pnl)}원, 지수 ${signed(last.bench)}원">
+    <line class="gl" x1="${padL}" x2="${W - padR}" y1="${Y(0)}" y2="${Y(0)}" stroke-dasharray="3 3"/>
+    <polyline class="pl bench" points="${line("bench")}"/><polyline class="pl ${cls}" points="${line("pnl")}"/>${hits}
+    <circle class="pt ${cls}" cx="${X(n - 1)}" cy="${Y(last.pnl)}" r="4"/>
+    <text class="vl strong" x="${X(n - 1)}" y="${Math.max(11, Y(last.pnl) - 9)}" text-anchor="end">${signed(last.pnl, man)}</text></svg>`;
+}
+addEventListener("resize", () => { if (paperState.data && state.view === "paper") drawPaperCurve(paperState.data.curve); });
 
 /* ── 차트 '오늘' 보기: 하루 1분봉, 최고·최저, 어제 종가 ─────────── */
 function todayKey() { return `${chart.meta.market}:${chart.meta.symbol}`; }

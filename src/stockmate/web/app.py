@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from stockmate import (
-    alerts, analysis, discovery, ideas, importers, intraday, markets, memory, performance, plans, portfolio, research, screenshots,
+    alerts, analysis, discovery, ideas, importers, intraday, markets, memory, paper, performance, plans, portfolio, research, screenshots,
     symbols, sync, technical,
 )
 from stockmate.brokers.kis import KisError
@@ -594,6 +594,13 @@ def start_discovery() -> dict[str, Any]:
 def get_scorecard() -> dict[str, Any]:
     with session_scope() as session:
         return discovery.scorecard(session)
+
+
+@app.get("/api/paper")
+def get_paper() -> dict[str, Any]:
+    """AI 모의투자: 추천을 AI 말대로 따랐다면 (일봉으로 거꾸로 계산)."""
+    with session_scope() as session:
+        return paper.run(session)
 
 
 @app.get("/api/ideas/{idea_id:int}/plan-draft")

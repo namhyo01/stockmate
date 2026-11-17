@@ -38,13 +38,14 @@ src/stockmate/
   markets.py       화면 위 시장 지표 띠(/api/markets, 20초 캐시): 네이버 증권(코스피·코스닥·미국 지수·니케이·환율·미국 10년물, 지연 없음) + yfinance(비트코인)
   research.py      검색 탭: 종목의 지금 걸린 발굴 패턴과 과거 성과, claude -p(웹 검색) 종목 분석 → data/research/(추천 카드 포함), 대화 기록에도 남김. "추천 탭에 담기" → Idea(source=search), "계획 탭에 담기" → 초안(분석의 actions 블록, 예전 분석은 글에서 뽑음)을 사용자가 고친 뒤 PlanItem(source=search)
   analysis.py      claude -p 실행 (분석 리포트, 질문 답변)
+  paper.py         AI 모의투자 탭(#paper, /api/paper): 추천(Idea)마다 100만원씩 AI가 말한 매수 구간·철회 기준·목표가대로 사고팔았다면을 일봉으로 계산(매수 구간 위쪽 가격까지 내려온 첫날 매수, 스윙 10·장기 40거래일 안 오면 안 삼, 종가 철회·고가 목표가, 같은 날이면 철회 먼저, 스윙 60거래일 매도, 바뀐 추천은 그날 종가에 매도), 같은 날 같은 돈을 지수에 넣었을 때와 비교. 수수료·세금·환율 미반영
   alerts.py        가격 알림(웹 푸시, pywebpush): 웹 서버 스레드가 1분마다 열린 계획의 가격 조건, 추천 카드의 매수 구간·철회 기준·목표가를 보고 '새로 들어올 때'만 보낸다(같은 알림 12시간 쿨다운, 처음 확인 때 이미 든 조건은 기억만). 조용한 시간(설정, 모든 기기 공통)에는 급한 것(철회 기준 깨짐, 매도 계획 가격)만 바로 보내고 나머지는 모아서 끝나는 시각에 '조용한 시간 동안 n건' 하나로(아침 요약). 화면 위 종 버튼으로 기기마다 켜고, 켜진 종을 누르면 설정 창(조용한 시간, 이 기기 끄기)(sw.js, manifest). 아이폰은 '홈 화면에 추가'한 앱에서만. 키·구독·보낸 기록은 data/alerts/
   screenshots.py   스크린샷 → claude -p(도구 없음, JSON 스키마)로 화면 값 읽기 → 평단 역산·티커 검증·잔고 비교 → 반영
   memory.py        투자자 프로필, 추천 기록, 대화 기록 → 프롬프트용 기억
   ideas.py         AI 추천 종목: ```ideas 블록(JSON 배열) → Idea (이유·리스크·겹침·출처, 추천 때 가격 대비 변화)
   plans.py         매매 계획: Claude 응답의 ```actions 블록(add/done/cancel) → PlanItem, 계획 탭용 조건 충족 여부
   web/app.py       FastAPI (JSON API + 정적 페이지, WEB_PASSWORD 있으면 Basic 인증)
-  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 6개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")이나 주식 지도의 칸을 누르면 캔들 차트 창이 열린다(가진 종목이면 맨 위에 계좌별 "내 보유": 수량·평단·현재가·평가금·손익·오늘)(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, "AI 가격선" 층: AI 매수 구간·철회 기준·목표가·리포트 관심 가격대·열린 계획 가격(`research.levels`), 아래에 "AI 의견과 가격선"과 AI가 받는 차트 요약)
+  web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 7개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #paper(AI 모의투자), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")이나 주식 지도의 칸을 누르면 캔들 차트 창이 열린다(가진 종목이면 맨 위에 계좌별 "내 보유": 수량·평단·현재가·평가금·손익·오늘)(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, "AI 가격선" 층: AI 매수 구간·철회 기준·목표가·리포트 관심 가격대·열린 계획 가격(`research.levels`), 아래에 "AI 의견과 가격선"과 AI가 받는 차트 요약)
 data/              (git 제외) stockmate.db, memory/, analyses/, imports/, candles/, research/, discovery/, alerts/, kis_token.json, toss_token.json
 private/           (git 제외) 개인 기록: HANDOFF.md, 백업
 ```

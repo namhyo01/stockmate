@@ -9,6 +9,7 @@
   (시가부터 목표가 위면 시가). 같은 날 둘 다면 철회 기준이 먼저라고 본다 (보수적으로).
   스윙은 산 지 60거래일이 지나면 종가에 판다. 장기는 기준에 닿기 전까지 들고 있는다.
 - AI가 같은 종목을 새로 추천해서 바뀐 추천(replaced)은 바뀐 날 종가에 판다. 사용자가 '관심 없음'으로 넘긴 것도 AI 말대로 계산한다.
+- 철회 기준(stop)이 없는 추천은 뺀다. 초기(2026-10 초) 대화 추천은 손절선 없이 나와서, '버틸 때까지 들고 있기'가 되어 지금 규칙의 AI를 평가하는 데 맞지 않다.
 - 비교: 같은 돈을 산 날 지수(국내 KODEX 200, 미국 S&P500 ETF는 TIGER 미국S&P500, 미국 종목은 SPY)에 넣었다면.
 """
 
@@ -208,7 +209,9 @@ def summary(trades: list[dict[str, Any]]) -> dict[str, Any]:
 def run(session: Session, source: technical.DailyCandles | None = None) -> dict[str, Any]:
     from stockmate.discovery import _bench_key
 
-    rows = list(session.scalars(select(Idea).where(Idea.symbol.is_not(None), Idea.market.is_not(None)).order_by(Idea.created_at)))
+    every = list(session.scalars(select(Idea).where(Idea.symbol.is_not(None), Idea.market.is_not(None)).order_by(Idea.created_at)))
+    rows = [i for i in every if i.stop]
+    no_stop = len(every) - len(rows)
     keys = {(i.market, i.symbol) for i in rows} | {_bench_key(i) for i in rows}
     candles = (source or technical.candles).get(keys)
     trades, frames, benches, missing = [], {}, {}, []
@@ -235,5 +238,6 @@ def run(session: Session, source: technical.DailyCandles | None = None) -> dict[
         "curve": equity_curve(trades, frames, benches),
         "trades": trades,
         "missing": missing,
+        "no_stop": no_stop,
         "as_of": dt.datetime.now().isoformat(timespec="seconds"),
     }

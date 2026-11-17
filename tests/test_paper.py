@@ -2,9 +2,18 @@ import datetime as dt
 from decimal import Decimal
 
 import pandas as pd
+import pytest
+from sqlalchemy.orm import Session
 
 from stockmate import paper
+from stockmate.db import make_engine
 from stockmate.models import Idea, Market
+
+
+@pytest.fixture
+def session():
+    with Session(make_engine("sqlite://")) as s:
+        yield s
 
 
 def frame(rows, start="2026-10-05"):
@@ -75,3 +84,14 @@ def test_trade_row_and_summary_against_bench():
     assert s["invested"] == 1_000_000 and s["pct"] == 10.0 and s["bench_pct"] == 2.0 and s["wins"] == 1 and s["targets"] == 1
     curve = paper.equity_curve([row], {"US:AAA": f}, {"US:AAA": bench})
     assert curve[-1]["pnl"] == 100_000 and curve[-1]["bench"] == 20_000 and curve[0]["invested"] == 1_000_000
+
+
+def test_run_skips_ideas_without_stop(session):
+    from stockmate import ideas
+    from stockmate.technical import DailyCandles
+
+    ideas.apply_ideas(session, [{"name": "손절 있음", "symbol": "AAA", "stop": 90, "entry_high": 102},
+                                {"name": "손절 없음", "symbol": "BBB", "entry_high": 102}], "weekly")  # fmt: skip
+    f = frame([(100, 101, 99, 100)] * 5, start=dt.date.today() + dt.timedelta(days=1))
+    r = paper.run(session, DailyCandles(fetcher=lambda m, s: f))
+    assert [t["name"] for t in r["trades"]] == ["손절 있음"] and r["no_stop"] == 1

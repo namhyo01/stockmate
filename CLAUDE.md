@@ -24,7 +24,8 @@ src/stockmate/
   portfolio.py     매매 기록, 이동평균 단가, 평가, 합계
   market_data.py   PriceProvider 프로토콜(+선택: previous_closes 전일 종가 → 오늘 등락), 공개 시세(FinanceDataReader·yfinance), CachedPrices
   brokers/kis.py   한국투자증권 Open API (조회 전용: 잔고, 예수금, 국내·해외 현재가)
-  brokers/toss.py  토스증권 Open API (조회 전용: 허용 경로의 GET만 보낸다. 키 자체는 주문 권한이 있다)
+  brokers/toss.py  토스증권 Open API (허용 경로의 GET + 지정가 주문·주문 조회·취소만 보낸다. 정정·조건주문·시장가는 없다. 키 자체는 모든 주문 권한이 있다)
+  orders.py        토스 지정가 주문(계획 탭 '토스로 매수/매도', /api/plans/{id}/order): 토스 계좌의 열린 계획만, 주문마다 Google OTP(TOTP 6자리, 직접 구현, 한 코드는 한 번만, 앞뒤 30초 허용, 10분에 5번 틀리면 잠시·24시간에 20번이면 `stock order-otp --unlock`까지 잠금, 틀린 기록은 파일에 남아 재시작해도 이어지고 틀릴 때마다 웹 푸시. 비밀 키는 data/orders/otp.json(600), 등록은 터미널 `stock order-otp [--reset]`(QR)에서만, 웹에는 키를 내보내지 않는다. 안 되는 주문은 OTP 확인 전에 걸러서 코드를 낭비하지 않는다), 한 번에 100만원·최근 24시간 300만원(매수·매도 합산, 취소·거부는 체결분만, 미국은 환율에 1% 여유), 지금 가격보다 5% 넘게 비싸게 사거나 싸게 파는 주문 차단, 같은 종목·방향에 끝나지 않은 주문이 있으면 새 주문 차단(계획이 바뀌어도), clientOrderId로 재시도 안전(409 처리 중은 다시 시도). 토스가 확실히 거절한 것(400·401·403·404·422·429, 409 중 처리 중이 아닌 것)만 REJECTED, 나머지 오류·응답 없음은 UNKNOWN('확인 필요', 한도에 그대로 세고 같은 종목 주문을 막는다)으로 두고 사람이 토스 앱을 보고 '안 들어갔어요/들어갔어요'로 정리(resolve)한다. 자동으로 다시 보내지 않는다. 기록은 data/orders/orders.json, 전부 체결되면 계획을 done으로. OTP를 등록하지 않으면 버튼이 안 보인다
   sync.py          KIS·토스 동기화, 시세 제공자 선택 (KIS 우선, 실패 시 공개 데이터)
   importers.py     잔고 CSV 가져오기 (symbol,name,quantity,avg_cost,market)
   report.py        대시보드·분석 공용 스냅샷 dict, ETF 이름으로 실제 투자 지역 추정
@@ -46,14 +47,14 @@ src/stockmate/
   plans.py         매매 계획: Claude 응답의 ```actions 블록(add/done/cancel) → PlanItem, 계획 탭용 조건 충족 여부
   web/app.py       FastAPI (JSON API + 정적 페이지, WEB_PASSWORD 있으면 Basic 인증)
   web/static/index.html  대시보드 (바닐라 JS, 빌드 없음). 탭 7개: #portfolio, #plans(매매 계획), #ideas(AI 추천 종목), #paper(AI 모의투자), #search(종목 검색 → 차트·패턴·AI 종목 분석), #ai(대화, 예전 #claude), #analysis(리포트·기억). 맨 위에 시장 지표 띠(누르면 지표 차트, "전체 보기"는 목록). 차트는 차트 창(dialog)과 검색 탭이 같은 코드를 쓴다(`chart.root`에 그린다). 화면 문구는 "Claude" 대신 "AI"로 쓴다. 종목 이름(모바일은 "차트 보기", 추천 카드는 "차트")이나 주식 지도의 칸을 누르면 캔들 차트 창이 열린다(가진 종목이면 맨 위에 계좌별 "내 보유": 수량·평단·현재가·평가금·손익·오늘)(`/api/chart`, 라이브러리 없이 SVG: 이동평균·일목 구름·볼린저·거래량·평단선, "AI 가격선" 층: AI 매수 구간·철회 기준·목표가·리포트 관심 가격대·열린 계획 가격(`research.levels`), 아래에 "AI 의견과 가격선"과 AI가 받는 차트 요약)
-data/              (git 제외) stockmate.db, memory/, analyses/, imports/, candles/, research/, discovery/, alerts/, kis_token.json, toss_token.json
+data/              (git 제외) stockmate.db, memory/, analyses/, imports/, candles/, research/, discovery/, alerts/, orders/, kis_token.json, toss_token.json
 private/           (git 제외) 개인 기록: HANDOFF.md, 백업
 ```
 
 ## 핵심 설계 결정 (바꾸기 전에 사용자와 상의)
 
 - **AI는 Anthropic API 키가 아니라 Claude Code 구독으로 돌린다.** `analysis.py`가 `claude -p --tools WebSearch --strict-mcp-config`로 새 세션을 띄운다. anthropic SDK나 ANTHROPIC_API_KEY를 추가하지 않는다.
-- **주문 기능은 만들지 않는다.** API 키 유출 대비가 아니라, AI(외부 텍스트를 읽는 claude -p)에게 매매 경로를 주지 않기 위해서다. 사용자가 원하면 "사람이 CLI에서 직접 승인해야 실행 + 금액 한도 + 모의투자 먼저 + cron에서는 불가" 조건으로만 만든다.
+- **AI에게 매매 경로를 주지 않는다.** 주문은 토스만, 계획 탭에서 사람이 가격·수량을 확인하고 Google OTP를 넣을 때만 나간다(`orders.py`, 2026-11-18 사용자 결정: 계획 탭 지정가만, 1회 100만원, PIN 대신 Google OTP). AI(외부 텍스트를 읽는 claude -p)의 응답, 가격 알림, 예약 작업(발굴·분석)에서 `orders`를 부르지 않는다. AI가 만든 계획 값이 주문 기본값이 되므로 한도·가격 확인을 느슨하게 하지 않는다. 한도·범위를 넓히거나 시장가·조건주문·한투 주문을 더하려면 사용자와 먼저 상의한다. 토스에는 모의투자 서버가 없다.
 - **차트 지표는 코드가 계산하고 AI는 해석만 한다.** 분석·질문 프롬프트에 보유 종목, 추천 탭 종목, 질문에 쓴 종목(`symbols.find_symbols`: 6자리 코드, 대문자 미국 티커, 한글 종목명. 일봉이 없으면 조용히 뺀다)의 `technical.chart_context()` 요약이 들어간다. 분석 리포트에는 "차트 점검" 섹션이 있다.
 - **종목 발굴은 '코드가 후보와 확률, AI가 판단'** (`discovery.py`). 백테스트(2026-10 기준)에서 단순 차트 패턴은 대부분 지수를 못 이겼고, 꾸준히 나은 건 상대강도(주도주) 계열과 미국의 신고가·구름 돌파뿐이었다. 그마저 지수 대비 중간값은 마이너스(소수의 큰 승자가 평균을 끌어올림)라서, 추천에는 철회 기준(stop)과 목표가(target)를 꼭 붙이고 나눠 담게 한다. 생존 편향(지금 목록으로 과거 계산)이 있다는 점도 프롬프트와 화면에 밝힌다. 추천 성적표(스윙 20거래일, 장기 120거래일, 지수 대비)는 다음 발굴 프롬프트에 들어간다.
 - **기억은 파일과 DB로 쌓는다** (모델 재학습이 아님). 분석·질문 때마다 `memory.build_context()`가 프로필, 최근 추천 2회분과 이후 가격 변화, 최근 대화 5개를 프롬프트에 넣는다.

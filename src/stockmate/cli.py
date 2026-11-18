@@ -253,6 +253,34 @@ def tag(
         console.print(f"🏷️  {instrument.display_name} → {strategy.label}")
 
 
+@app.command("order-otp")
+def order_otp(
+    reset: Annotated[bool, typer.Option("--reset", help="새 폰으로 바꾼다 (예전 폰의 코드는 더는 안 된다)")] = False,
+    unlock: Annotated[bool, typer.Option("--unlock", help="OTP를 많이 틀려서 막힌 주문을 다시 연다")] = False,
+) -> None:
+    """계획 탭 '토스로 주문'에 쓸 Google OTP를 등록한다. 터미널에 나온 QR을 Google OTP 앱으로 찍는다.
+
+    비밀 키는 data/orders/otp.json에만 남는다. 웹 화면에서는 등록할 수 없다.
+    """
+    import segno
+
+    from stockmate import orders
+
+    if unlock:
+        orders.unlock_otp()
+        console.print("주문 잠금을 풀었어요. 많이 틀린 적이 있다면 대시보드에 누가 들어왔는지 먼저 확인하세요.")
+        return
+    try:
+        uri = orders.setup_otp(reset=reset)
+    except orders.OrderError as e:
+        console.print(f"[yellow]{e}[/]")
+        raise typer.Exit(1) from None
+    segno.make(uri, error="m").terminal(compact=True)
+    secret = uri.split("secret=")[1].split("&")[0]
+    print(f"\nGoogle OTP 앱 > + > QR 코드 스캔 (또는 '설정 키 입력': {' '.join(secret[i:i + 4] for i in range(0, len(secret), 4))})")
+    print("등록했으면 이 화면을 지우세요 (clear). 이 키가 있으면 누구나 OTP 코드를 만들 수 있어요.")
+
+
 # ── CSV 가져오기 ────────────────────────────────────────
 
 

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     kis_app_secret: str | None = None
     kis_account_no: str | None = None
 
-    # 토스증권 Open API (조회만 한다. 키 자체는 주문 권한이 있으니 유출에 주의)
+    # 토스증권 Open API (조회 + 계획 탭의 지정가 주문. 키 자체는 모든 주문 권한이 있으니 유출에 주의)
     toss_client_id: str | None = None
     toss_client_secret: str | None = None
     toss_account_seq: int | None = None  # 비우면 계좌 목록에서 종합매매 계좌를 찾는다

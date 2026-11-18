@@ -482,6 +482,34 @@ a.btn { text-decoration: none; }
 .pwarn { font-size: 13px; padding: 9px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); margin-bottom: 12px; }
 @media (max-width: 560px) { .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* 토스 주문 */
+.btn.order { color: var(--c); border-color: color-mix(in srgb, var(--c) 45%, var(--line)); }
+.btn.go { background: var(--c); border-color: var(--c); color: #fff; }
+.btn.go:disabled { opacity: .45; }
+#ordersheet { width: min(460px, calc(100vw - 32px)); }
+#ordersheet .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.osum { display: grid; gap: 4px; margin-bottom: 14px; font-size: 14px; color: var(--ink-2); }
+.osum .nm { font-size: 17px; font-weight: 750; color: var(--ink); }
+.osum .nm small { font-size: 12.5px; font-weight: 600; color: var(--ink-3); margin-left: 6px; }
+.ototal { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: var(--sunken); font-size: 13.5px; display: grid; gap: 4px; }
+.ototal .amt { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; color: var(--ink-2); }
+.ototal .amt b { font-size: 19px; color: var(--ink); }
+.ototal .lim { color: var(--ink-3); }
+.ototal.bad { background: var(--warn-bg); }
+.ototal.bad .lim, .ototal .why { color: var(--warn-ink); font-weight: 650; }
+.oerr { margin-top: 12px; }
+.orders { margin: 14px 0 4px; padding: 12px 14px; border-radius: 12px; background: var(--surface); }
+.orders-h { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; font-weight: 700; }
+.orders-h .quiet { font-weight: 500; font-size: 12.5px; }
+.orow { display: flex; align-items: center; gap: 10px; padding: 9px 0 0; margin-top: 9px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.orow .st { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--sunken); color: var(--ink-2); white-space: nowrap; }
+.orow .st.wait { background: var(--warn-bg); color: var(--warn-ink); }
+.orow .what { flex: 1; min-width: 0; }
+.orow .what small { display: block; color: var(--ink-3); font-size: 12px; }
+.orders .note { margin-top: 8px; font-size: 13px; color: var(--ink-3); }
+.orow.unk { border-top: 0; margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); flex-wrap: wrap; }
+.orow.unk small { color: inherit; opacity: .8; }
+
 /* 검색 탭 */
 .sbox { position: relative; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; margin-top: 6px; }
 .sbox:focus-within { border-color: var(--focus); }
@@ -1159,6 +1187,15 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <button class="btn" type="button" id="plansheet-add-row">회차 추가</button>
     <button class="btn ink" type="button" id="plansheet-save">계획에 담기</button></div>
 </dialog>
+<dialog class="sheet" id="ordersheet" aria-labelledby="ordersheet-title">
+  <div class="sheet-head">
+    <strong id="ordersheet-title">토스로 주문</strong>
+    <button class="x" type="button" id="ordersheet-close" aria-label="닫기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="sheet-body" id="ordersheet-body"></div>
+  <div class="sheet-foot"><span class="left">실제 돈으로 토스에 주문돼요</span>
+    <button class="btn go" type="button" id="ordersheet-go">주문 넣기</button></div>
+</dialog>
 <input type="file" id="shot-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
 
 <div id="tip" role="tooltip"></div>
@@ -1684,7 +1721,7 @@ async function api(path, { timeout, ...opts } = {}) {
   notePageVersion(res);
   if (!res.ok) {
     let msg = `${res.status}`;
-    try { msg = (await res.json()).detail || msg; } catch {}
+    try { const d = (await res.json()).detail; msg = Array.isArray(d) ? "입력한 값을 확인해 주세요" : d || msg; } catch {}
     throw new Error(msg);
   }
   return res.json();
@@ -2022,6 +2059,7 @@ const SIDE = { buy: { label: "매수", color: "var(--up)" }, sell: { label: "매
 const SOURCE = { chat: "대화", analysis: "분석 리포트", rebuild: "AI 정리", search: "검색 탭" };
 async function loadPlans() {
   if (!plan.data) $("plan-accts").innerHTML = `<div class="plan-empty"><span class="spin"></span> 계획과 지금 시세를 불러오는 중이에요</div>`;
+  loadOrders();
   try { plan.data = await api("/api/plans", { timeout: 30_000 }); renderPlans(); } catch (e) { toast(`계획을 불러오지 못했어요: ${e.message}`, "error"); }
 }
 function accountColor(name) {
@@ -2101,6 +2139,9 @@ function planCard(p) {
     ${condHtml}
     ${meta.length ? `<dl class="pc-meta">${meta.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
     <div class="pc-foot"><span class="quiet">${when} ${SOURCE[p.source] || ""}에서</span>
+      ${ord.data?.enabled && p.account === "토스" && p.symbol ? (ord.data.orders.some((o) => o.open && o.symbol === p.symbol && o.side === p.side)
+        ? `<span class="quiet">주문 진행 중</span>`
+        : `<button class="btn sm order" type="button" data-order="${p.id}" style="--c:${SIDE[p.side].color}">토스로 ${SIDE[p.side].label}</button>`) : ""}
       <button class="btn sm" type="button" data-plan="${p.id}" data-status="canceled">취소</button>
       <button class="btn sm ink" type="button" data-plan="${p.id}" data-status="done">했어요</button></div>
   </article>`;
@@ -2143,6 +2184,7 @@ function renderPlans() {
             <div><h4 class="col-h" style="--c:var(--down)"><i></i>팔 것</h4>${bs.map(planCard).join("") || `<div class="plan-none">없어요</div>`}</div>
           </div></div>`;
       }).join("") : ""}
+      ${open && name === "토스" ? ordersPanel() : ""}
     </div>`;
   }).join("");
   $("plan-accts").innerHTML = sections || `<div class="plan-empty">계획이 없어요. AI 탭에서 물어보거나 분석을 받으면 여기에 쌓여요.</div>`;
@@ -2163,6 +2205,12 @@ $("view-plans").addEventListener("click", async (e) => {
     try { localStorage.setItem("planCollapsed", JSON.stringify(state.planCollapsed)); } catch {}
     return renderPlans();
   }
+  const ob = e.target.closest("[data-order]");
+  if (ob) return openOrder(plan.data?.open.find((p) => String(p.id) === ob.dataset.order));
+  const oc = e.target.closest("[data-ocancel]");
+  if (oc) return cancelOrder(oc);
+  const or = e.target.closest("[data-oresolve]");
+  if (or) return resolveOrder(or);
   const b = e.target.closest("[data-plan]"); if (!b) return;
   b.disabled = true;
   try {
@@ -2181,6 +2229,118 @@ $("plan-rebuild").addEventListener("click", async () => {
   } catch (e) { toast(`정리하지 못했어요: ${e.message}`, "error", 8000); }
   finally { busy(btn, false); }
 });
+
+/* ── 토스 주문 (계획 탭, Google OTP를 넣어야만) ─────────── */
+const ord = { data: null, plan: null };
+async function loadOrders() {
+  try { ord.data = await api("/api/orders", { timeout: 20_000 }); if (plan.data) renderPlans(); } catch { /* 주문 목록은 다음에 다시 */ }
+}
+const orderMoney = (v, cur) => cur === "USD" ? price(v, "USD") : `${won(v)}원`;
+function ordersPanel() {
+  const d = ord.data; if (!d) return "";
+  if (!d.enabled) return `<div class="orders"><div class="note">서버 터미널에서 <code>stock order-otp</code>로 Google OTP를 등록하면 토스 계획 카드에 "토스로 주문" 버튼이 생겨요.</div></div>`;
+  const recent = d.orders.filter((o) => o.open || Date.now() - new Date(o.ordered_at) < 3 * 86400_000).slice(0, 6);
+  return `<div class="orders">
+    <div class="orders-h"><span>토스 주문</span><span class="quiet">최근 24시간 ${man(d.used_today)}원 / ${man(d.daily)}원 · 한 번에 ${man(d.per_order)}원까지</span></div>
+    ${d.error ? `<div class="note">${esc(d.error)}</div>` : ""}
+    ${recent.map((o) => `<div class="orow">
+      <span class="st${o.open ? " wait" : ""}">${esc(o.status_label)}</span>
+      <span class="what">${o.side === "buy" ? "매수" : "매도"} ${esc(o.name)} ${o.quantity}주 · ${orderMoney(Number(o.price), o.currency)}
+        <small>${new Date(o.ordered_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}${Number(o.filled_quantity) ? ` · ${Number(o.filled_quantity)}주 체결${o.avg_price ? ` 평균 ${orderMoney(Number(o.avg_price), o.currency)}` : ""}` : ""}</small></span>
+      ${o.open && o.order_id && o.status !== "PENDING_CANCEL" ? `<button class="btn sm" type="button" data-ocancel="${esc(o.client_order_id)}">주문 취소</button>` : ""}
+    </div>${o.status === "UNKNOWN" ? `<div class="orow unk"><span class="what">토스에서 답을 못 받았어요. 토스 앱의 주문 내역을 보고 골라 주세요${o.error ? `<small>${esc(o.error)}</small>` : ""}</span>
+      <button class="btn sm" type="button" data-oresolve="${esc(o.client_order_id)}" data-placed="false">안 들어갔어요</button>
+      <button class="btn sm" type="button" data-oresolve="${esc(o.client_order_id)}" data-placed="true">들어갔어요</button></div>` : ""}`).join("") || `<div class="note">최근 주문이 없어요.</div>`}
+  </div>`;
+}
+function openOrder(p) {
+  if (!p || !ord.data?.enabled) return;
+  const usd = p.currency === "USD", fx = usd ? (state.data?.fx.USD || 0) : 1;
+  const round = (v) => v == null ? null : usd ? Math.round(v * 100) / 100 : Math.round(v);
+  const now = p.price_now;
+  let px = p.side === "buy" ? (p.price_high != null && now != null ? Math.min(p.price_high, now) : p.price_high ?? now)
+    : (p.price_low != null && now != null ? Math.max(p.price_low, now) : p.price_low ?? now);
+  px = round(px);
+  const left = Math.max(0, Math.min(ord.data.per_order, ord.data.daily - ord.data.used_today));
+  const q = Number.isInteger(p.quantity) && p.quantity > 0 ? p.quantity : 1;
+  ord.plan = { ...p, fx: usd ? fx * ord.data.fx_buffer : 1 };
+  const lo = p.price_low != null ? orderMoney(p.price_low, p.currency) : null, hi = p.price_high != null ? orderMoney(p.price_high, p.currency) : null;
+  const cond = lo && hi ? `${lo}~${hi}` : lo ? `${lo} 이상` : hi ? `${hi} 이하` : "";
+  $("ordersheet-title").textContent = `토스로 ${SIDE[p.side].label}`;
+  $("ordersheet-body").innerHTML = `<div class="osum">
+      <span class="nm">${esc(p.name)}<small>${esc(p.symbol)}</small></span>
+      <span>${SIDE[p.side].label} · 지정가 · 오늘 장 끝날 때까지</span>
+      <span>지금 <b>${now != null ? orderMoney(now, p.currency) : "가격 모름"}</b>${cond ? ` · 계획 ${cond}` : ""}${p.quantity ? ` · 계획 ${qty(p.quantity)}주` : ""}</span>
+    </div>
+    <div class="pgrid">
+      <label>수량(주)<input id="ord-qty" inputmode="numeric" value="${q}"></label>
+      <label>가격(${usd ? "달러" : "원"})<input id="ord-price" inputmode="decimal" value="${px ?? ""}"></label>
+      <label class="full">Google OTP<input id="ord-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="앱의 6자리 코드"></label>
+    </div>
+    <div class="ototal" id="ord-total"></div>
+    <div class="pwarn oerr" id="ord-err" hidden></div>`;
+  $("ordersheet-go").style.setProperty("--c", SIDE[p.side].color);
+  $("ordersheet-go").textContent = `${SIDE[p.side].label} 주문 넣기`;
+  updateOrderTotal();
+  $("ordersheet").showModal();
+  $("ord-otp").focus();
+}
+function readOrder() {
+  const q = Number($("ord-qty").value.replace(/[,\s주]/g, ""));
+  const px = $("ord-price").value.replace(/[,$원\s]/g, "");
+  return { q, px, n: Number(px) };
+}
+function updateOrderTotal() {
+  const p = ord.plan, d = ord.data; if (!p || !d) return;
+  const { q, n } = readOrder();
+  const ok = Number.isInteger(q) && q > 0 && n > 0 && p.fx > 0;
+  const amt = ok ? q * n * p.fx : null;
+  const left = d.daily - d.used_today;
+  const now = p.price_now;
+  const why = !(p.fx > 0) ? "환율을 아직 못 받았어요. 잠시 후 다시 열어 주세요" : !ok ? "수량과 가격을 넣어 주세요"
+    : amt > d.per_order ? `한 번에 ${man(d.per_order)}원까지예요`
+    : amt > left ? `24시간 남은 한도 ${man(Math.max(0, left))}원을 넘어요`
+    : now != null && p.side === "buy" && n > now * (1 + d.max_gap) ? `지금 가격보다 ${d.max_gap * 100}% 넘게 비싸요`
+    : now != null && p.side === "sell" && n < now * (1 - d.max_gap) ? `지금 가격보다 ${d.max_gap * 100}% 넘게 싸요` : "";
+  $("ord-total").className = `ototal${why && ok ? " bad" : ""}`;
+  $("ord-total").innerHTML = `<div class="amt"><span>주문 금액${p.currency === "USD" ? " (원화 환산)" : ""}</span><b>${amt != null ? `${p.currency === "USD" ? "약 " : ""}${won(amt)}원` : "-"}</b></div>
+    ${why ? `<div class="why">${why}</div>` : `<div class="lim">한 번에 ${man(d.per_order)}원 · 24시간 남은 한도 ${man(Math.max(0, left))}원${p.currency === "USD" ? " · 환전 여유 1% 포함" : ""}</div>`}`;
+  $("ordersheet-go").disabled = !!why;
+}
+$("ordersheet-body").addEventListener("input", (e) => { if (e.target.id !== "ord-otp") updateOrderTotal(); });
+$("ordersheet-body").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("ordersheet-go").disabled) $("ordersheet-go").click(); });
+$("ordersheet-close").addEventListener("click", () => $("ordersheet").close());
+$("ordersheet-go").addEventListener("click", async () => {
+  const p = ord.plan; if (!p) return;
+  const { q, px } = readOrder(), otp = $("ord-otp").value.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(otp)) { $("ord-otp").focus(); return toast("Google OTP 6자리를 넣어 주세요", "error"); }
+  const btn = $("ordersheet-go");
+  busy(btn, true, "주문 넣는 중");
+  $("ord-err").hidden = true;
+  try {
+    ord.data = await api(`/api/plans/${p.id}/order`, { method: "POST", timeout: 120_000, body: JSON.stringify({ quantity: q, price: px, otp }) });
+    $("ordersheet").close();
+    renderPlans();
+    toast(`토스에 ${p.name} ${q}주 ${SIDE[p.side].label} 주문을 넣었어요. 체결되면 계획이 '했어요'로 바뀌어요`);
+  } catch (e) {
+    $("ord-err").textContent = e.message; $("ord-err").hidden = false;
+    $("ord-otp").value = "";
+    loadOrders();
+  } finally { busy(btn, false); updateOrderTotal(); }
+});
+async function resolveOrder(btn) {
+  busy(btn, true, "정리 중");
+  try {
+    ord.data = await api(`/api/orders/${btn.dataset.oresolve}/resolve`, { method: "POST", body: JSON.stringify({ placed: btn.dataset.placed === "true" }) });
+    renderPlans();
+    toast(btn.dataset.placed === "true" ? "들어간 주문으로 남겼어요. 체결되면 계획은 직접 '했어요'로 닫아 주세요" : "안 들어간 주문으로 정리했어요. 한도도 돌려놨어요");
+  } catch (e) { toast(`정리하지 못했어요: ${e.message}`, "error"); busy(btn, false); }
+}
+async function cancelOrder(btn) {
+  busy(btn, true, "취소 중");
+  try { ord.data = await api(`/api/orders/${btn.dataset.ocancel}/cancel`, { method: "POST", timeout: 30_000 }); renderPlans(); toast("주문 취소를 보냈어요"); }
+  catch (e) { toast(`취소하지 못했어요: ${e.message}`, "error", 8000); busy(btn, false); }
+}
 
 /* ── AI 추천 종목 ─────────────────────── */
 const idea = { data: null };

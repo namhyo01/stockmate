@@ -106,8 +106,37 @@ def test_only_read_requests_are_sent(tmp_path):
     client = make_client(tmp_path, fake)
     client.balance()
     assert {r.method for r in fake.requests if r.url.path != "/oauth2/token"} == {"GET"}
-    with pytest.raises(TossError, match="조회 전용"):
-        client._get("/api/v1/orders")
+    blocked = [
+        ("GET", "/api/v1/orders"),
+        ("POST", "/api/v1/conditional-orders"),
+        ("POST", "/api/v1/orders/abc/modify"),
+        ("POST", "/api/v1/orders/../oauth2"),
+        ("DELETE", "/api/v1/orders/abc"),
+    ]
+    for method, path in blocked:
+        with pytest.raises(TossError, match="보낼 수 없는"):
+            client._call(method, path)
+
+
+def test_limit_order_request(tmp_path):
+    sent = []
+
+    def fake(request):
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 60_000})
+        sent.append(request)
+        if request.url.path == "/api/v1/orders":
+            return httpx.Response(200, json={"result": {"orderId": "o1", "clientOrderId": "c1"}})
+        return httpx.Response(200, json={"result": {"orderId": "x"}})
+
+    client = TossClient("id", "s", tmp_path / "t.json", account_seq=7, transport=httpx.MockTransport(fake))
+    assert client.place_limit_order("c1", "005930", "BUY", 3, D("70000")) == "o1"
+    body = json.loads(sent[0].content)
+    assert body == {"clientOrderId": "c1", "symbol": "005930", "side": "BUY", "orderType": "LIMIT",
+                    "timeInForce": "DAY", "quantity": "3", "price": "70000"}  # fmt: skip
+    assert sent[0].headers["X-Tossinvest-Account"] == "7"
+    client.cancel_order("o1")
+    assert (sent[1].method, sent[1].url.path) == ("POST", "/api/v1/orders/o1/cancel")
 
 
 def test_token_is_cached_and_renewed_once_when_revoked(tmp_path):
@@ -146,3 +175,25 @@ def test_sync_keeps_purchase_fx_when_quantity_is_unchanged(session, tmp_path):
     assert holding.avg_cost == D("150.1781")
     # 원화 원금(0.053003 × 160 × 1357.6)이 그대로 남도록 매입 환율을 다시 계산한다
     assert abs(holding.quantity * holding.avg_cost * holding.avg_fx - D("0.053003") * 160 * D("1357.6")) < D("0.01")
+
+
+def test_order_busy_conflict_is_retried_and_errors_carry_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(toss.time, "sleep", lambda s: None)
+    calls = []
+
+    def fake(request):
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 60_000})
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(409, json={"error": {"code": "request-in-progress", "message": "처리 중"}})
+        if len(calls) == 2:
+            return httpx.Response(200, json={"result": {"orderId": "o1"}})
+        return httpx.Response(422, json={"error": {"code": "market-closed", "message": "장 마감"}})
+
+    client = TossClient("id", "s", tmp_path / "t.json", account_seq=7, transport=httpx.MockTransport(fake))
+    assert client.place_limit_order("c1", "005930", "BUY", 1, D(70000)) == "o1"
+    assert json.loads(calls[0].content)["clientOrderId"] == json.loads(calls[1].content)["clientOrderId"]
+    with pytest.raises(TossError) as e:
+        client.place_limit_order("c2", "005930", "BUY", 1, D(70000))
+    assert (e.value.status, e.value.code) == (422, "market-closed") and "주문을 받지 않았어요" in str(e.value)

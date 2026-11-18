@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -21,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from stockmate import (
-    alerts, analysis, discovery, ideas, importers, intraday, markets, memory, paper, performance, plans, portfolio, research, screenshots,
+    alerts, analysis, discovery, ideas, importers, intraday, markets, memory, orders, paper, performance, plans, portfolio, research, screenshots,
     symbols, sync, technical,
 )
 from stockmate.brokers.kis import KisError
@@ -303,6 +304,68 @@ def rebuild_plans() -> dict[str, Any]:
         _ask_lock.release()
     snapshots.refresh_in_background()
     return {"changes": changes, **_plan_rows()}
+
+
+# ── 토스 주문 (계획 탭, 사람이 Google OTP를 넣어야만) ──────────
+
+
+def _orders_state(refresh: bool = True) -> dict[str, Any]:
+    errors: list[str] = []
+    if refresh and orders.enabled() and any(r["status"] in orders.OPEN_STATUSES for r in orders.records()):
+        try:
+            with session_scope() as session:
+                errors = orders.refresh(session, sync.make_toss_client())
+        except (TossError, httpx.HTTPError) as e:
+            errors = [str(e)]
+    return {**orders.state(orders.records()), "error": f"주문 상태를 받지 못했어요: {'; '.join(errors)}" if errors else None}
+
+
+@app.get("/api/orders")
+def get_orders() -> dict[str, Any]:
+    return _orders_state()
+
+
+class OrderRequest(BaseModel):
+    quantity: int = Field(gt=0, le=1_000_000)
+    price: str = Field(pattern=r"^\d+(\.\d{1,4})?$", max_length=20)
+    otp: str = Field(pattern=r"^\d{6}$")
+
+
+@app.post("/api/plans/{item_id:int}/order")
+def order_plan(item_id: int, body: OrderRequest) -> dict[str, Any]:
+    """계획 탭의 '토스로 주문': 지정가, 한도·가격 확인·Google OTP를 거친다."""
+    if not orders.enabled():
+        raise HTTPException(400, "토스 키와 Google OTP 등록(`stock order-otp`)이 있어야 주문할 수 있어요.")
+    try:
+        with session_scope() as session:
+            rec = orders.place(session, item_id, body.quantity, body.price, body.otp, prices, sync.make_toss_client())
+    except (orders.OrderError, TossError, MarketDataError) as e:
+        raise HTTPException(400, str(e)) from None
+    snapshots.refresh_in_background()
+    return {"order": rec, **_orders_state(refresh=False)}
+
+
+class OrderResolve(BaseModel):
+    placed: bool
+
+
+@app.post("/api/orders/{client_order_id}/resolve")
+def resolve_order(client_order_id: str, body: OrderResolve) -> dict[str, Any]:
+    """응답을 못 받은 주문을 토스 앱에서 보고 정리한다 (들어갔음 / 안 들어갔음)."""
+    try:
+        orders.resolve(client_order_id, body.placed)
+    except orders.OrderError as e:
+        raise HTTPException(400, str(e)) from None
+    return _orders_state(refresh=False)
+
+
+@app.post("/api/orders/{client_order_id}/cancel")
+def cancel_order(client_order_id: str) -> dict[str, Any]:
+    try:
+        orders.cancel(client_order_id, sync.make_toss_client())
+    except (orders.OrderError, TossError) as e:
+        raise HTTPException(400, str(e)) from None
+    return _orders_state()
 
 
 # ── AI 추천 종목 ───────────────────────────────────

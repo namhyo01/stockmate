@@ -1,16 +1,18 @@
-"""토스증권 Open API 클라이언트 (조회 전용).
+"""토스증권 Open API 클라이언트 (조회 + 지정가 주문·취소).
 
 문서: https://developers.tossinvest.com (원본 명세: https://openapi.tossinvest.com/openapi-docs/latest/openapi.json)
 
 토스 키에는 권한 범위(scope)가 없어서 이 키 하나로 주문까지 할 수 있다.
-그래서 이 클라이언트는 아래 ALLOWED_PATHS의 GET 요청만 보낼 수 있게 막아 둔다 (토큰 발급만 예외).
-주문·조건주문 API는 의도적으로 구현하지 않는다.
+그래서 이 클라이언트는 아래 ALLOWED_PATHS의 GET과 ORDER_ROUTES(지정가 주문·주문 조회·취소)만 보낸다 (토큰 발급만 예외).
+주문은 orders.py만 부른다: 사람이 계획 탭에서 Google OTP를 넣어야 하고 금액 한도를 넘지 못한다.
+정정·조건주문·시장가는 구현하지 않는다.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -36,16 +38,28 @@ ALLOWED_PATHS = frozenset(
     }
 )
 
+# 주문: 이 (메서드, 경로)만 보낸다. 주문 ID는 영문·숫자·-·_
+ORDER_ROUTES = (
+    ("POST", re.compile(r"/api/v1/orders")),
+    ("GET", re.compile(r"/api/v1/orders/[\w-]+")),
+    ("POST", re.compile(r"/api/v1/orders/[\w-]+/cancel")),
+)
+
 # 토큰은 클라이언트당 1개만 유효하다 (새로 받으면 이전 토큰은 바로 무효). 파일에 캐시해서 재사용한다.
 TOKEN_REFRESH_MARGIN_SECONDS = 600
 # 계좌 목록은 초당 1회, 나머지도 초당 3~6회 제한이 있어 호출 간격을 벌린다.
 MIN_CALL_INTERVAL = 0.35
 RETRIES = 2
+BUSY_CODES = {"request-in-progress", "already-processing"}
 _MARKETS = {"KR": Market.KRX, "US": Market.US}
 
 
 class TossError(Exception):
-    pass
+    """status·code는 토스가 답한 오류일 때만 있다 (주문이 확실히 거절됐는지 가리는 데 쓴다)."""
+
+    def __init__(self, message: str, status: int | None = None, code: str | None = None):
+        super().__init__(message)
+        self.status, self.code = status, code
 
 
 @dataclass(frozen=True)
@@ -108,8 +122,16 @@ class TossClient:
     # ── 요청 ──────────────────────────────────────────
 
     def _get(self, path: str, params: dict[str, str] | None = None, account: bool = False) -> Any:
-        if path not in ALLOWED_PATHS:
-            raise TossError(f"조회 전용 클라이언트라 호출할 수 없는 경로예요: {path}")
+        return self._call("GET", path, params=params, account=account)
+
+    def _call(
+        self, method: str, path: str, params: dict[str, str] | None = None, body: dict[str, Any] | None = None, account: bool = False
+    ) -> Any:
+        allowed = (method == "GET" and path in ALLOWED_PATHS) or any(
+            method == m and pattern.fullmatch(path) for m, pattern in ORDER_ROUTES
+        )
+        if not allowed:
+            raise TossError(f"이 클라이언트로는 보낼 수 없는 요청이에요: {method} {path}")
         headers = {}
         if account:
             headers["X-Tossinvest-Account"] = str(self.account_seq())
@@ -120,16 +142,27 @@ class TossClient:
                 if wait > 0:
                     time.sleep(wait)
                 self._last_call = time.monotonic()
-            response = self._http.get(
-                path,
-                params=params,
-                headers={**headers, "Authorization": f"Bearer {self._token(renew=renew_now)}"},
-            )
+            try:
+                response = self._http.request(
+                    method,
+                    path,
+                    params=params,
+                    json=body,
+                    headers={**headers, "Authorization": f"Bearer {self._token(renew=renew_now)}"},
+                )
+            except httpx.TransportError:
+                # 주문은 clientOrderId가 있어서 다시 보내도 같은 주문이 두 번 생기지 않는다
+                if attempt < RETRIES and (method == "GET" or (body or {}).get("clientOrderId")):
+                    continue
+                raise
             renew_now = False
             if response.status_code == 429 and attempt < RETRIES:
                 time.sleep(min(float(response.headers.get("Retry-After") or 1), 5))
                 continue
             error = _json(response).get("error") or {}
+            if response.status_code == 409 and error.get("code") in BUSY_CODES and attempt < RETRIES:
+                time.sleep(1)  # 같은 clientOrderId의 앞 요청을 아직 처리 중
+                continue
             if response.status_code == 401 and not renewed and error.get("code") in (
                 "expired-token",
                 "token-revoked",
@@ -141,7 +174,7 @@ class TossClient:
             break
         if response.status_code != 200:
             error = _json(response).get("error") or {}
-            raise TossError(_explain(response.status_code, error, path))
+            raise TossError(_explain(response.status_code, error, path), response.status_code, error.get("code"))
         return _json(response)["result"]
 
     def account_seq(self) -> int:
@@ -187,6 +220,27 @@ class TossClient:
         result = self._get("/api/v1/exchange-rate", {"baseCurrency": "USD", "quoteCurrency": "KRW"})
         return Decimal(result["midRate"])
 
+    # ── 주문 (orders.py만 부른다) ─────────────────────
+
+    def place_limit_order(self, client_order_id: str, symbol: str, side: str, quantity: int, price: Decimal) -> str:
+        """지정가 주문(당일 유효). 주문 ID."""
+        body = {
+            "clientOrderId": client_order_id,
+            "symbol": symbol,
+            "side": side,
+            "orderType": "LIMIT",
+            "timeInForce": "DAY",
+            "quantity": str(quantity),
+            "price": f"{price:f}",
+        }
+        return self._call("POST", "/api/v1/orders", body=body, account=True)["orderId"]
+
+    def order(self, order_id: str) -> dict[str, Any]:
+        return self._call("GET", f"/api/v1/orders/{order_id}", account=True)
+
+    def cancel_order(self, order_id: str) -> str:
+        return self._call("POST", f"/api/v1/orders/{order_id}/cancel", account=True)["orderId"]
+
 
 def _json(response: httpx.Response) -> dict[str, Any]:
     try:
@@ -208,4 +262,6 @@ def _explain(status: int, error: dict[str, Any], path: str) -> str:
             "다른 곳에서 같은 토스 키로 토큰을 새로 받아서 이 토큰이 무효가 됐어요. "
             "토스 키는 한 곳에서만 쓰세요."
         )
+    if path.startswith("/api/v1/orders"):
+        return f"토스가 주문을 받지 않았어요 ({status} {code}): {message}"
     return f"토스 {path} 조회 실패 ({status} {code}): {message}"

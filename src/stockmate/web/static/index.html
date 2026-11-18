@@ -564,6 +564,9 @@ a.btn { text-decoration: none; }
 .paper-legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
 .paper-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--c); vertical-align: middle; margin-right: 5px; }
 .paper-legend i.dash { border-top-style: dashed; }
+.paper-weeks { margin-top: 14px; }
+.paper-weeks h3 { font-size: 15px; margin: 0 0 6px; }
+.paper-weeks h3 .quiet { font-weight: 500; font-size: 13px; }
 .score-tbl { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
 .score-tbl th, .score-tbl td { border-top: 1px solid var(--line); padding: 7px 8px; text-align: right; white-space: nowrap; }
 .score-tbl th { border-top: 0; color: var(--ink-3); font-weight: 600; }
@@ -1068,12 +1071,16 @@ dialog.sheet.wide { width: min(1080px, calc(100vw - 32px)); }
     <div class="plan-head">
       <div><h2>AI 모의투자</h2>
         <p class="quiet">추천 탭의 추천을 AI가 말한 그대로 따랐다면 어떻게 됐을지 일봉으로 계산해요. 추천마다 100만원씩, 실제 매매는 하지 않아요.</p></div>
+      <div class="seg" role="group" aria-label="모의투자 보기 간격" id="paper-step">
+        <button type="button" data-step="day" aria-pressed="true">날마다</button><button type="button" data-step="week" aria-pressed="false">주마다</button>
+      </div>
     </div>
     <div class="perf-grid" id="paper-grid">
       <div class="perf-main" id="paper-main"><div class="loading"><span class="spin"></span> 추천 종목들의 일봉을 불러오는 중이에요</div></div>
       <div class="perf-chart" id="paper-chart"></div>
       <div class="perf-movers" id="paper-side"></div>
     </div>
+    <div id="paper-weeks"></div>
     <details class="disc-box">
       <summary>계산 규칙</summary>
       <ul class="paper-rules">
@@ -3750,7 +3757,48 @@ function renderPerf() {
 addEventListener("resize", () => { if (perf.data && state.view === "portfolio") renderPerf(); });
 
 /* ── AI 모의투자: 추천을 AI 말대로 따랐다면 ─────────── */
-const paperState = { data: null, at: 0 };
+const paperState = { data: null, at: 0, step: loadPref("paperStep", "day") };
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const mdOf = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
+// 날마다 누적 손익을 주(월~금)로 묶는다: 그 주 마지막 거래일의 누적 값, 그 주에 늘거나 준 만큼, 그 주에 산·판 추천
+function paperWeeks(curve, trades) {
+  const weeks = [];
+  for (const c of curve) {
+    const d = new Date(`${c.date}T00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const key = ymd(d);
+    if (weeks.at(-1)?.key !== key) weeks.push({ key, first: c.date });
+    Object.assign(weeks.at(-1), { last: c.date, end: c });
+  }
+  const thisWeek = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return ymd(d); })();
+  return weeks.map((w, i) => {
+    const prev = weeks[i - 1]?.end || { pnl: 0, bench: 0 };
+    const inWeek = (iso) => iso && iso >= w.key && iso <= w.last;
+    return { ...w, range: w.key === thisWeek ? `이번 주 (${mdOf(w.first)}~)` : `${mdOf(w.first)}~${mdOf(w.last)}`,
+      pnl: w.end.pnl - prev.pnl, bench: w.end.bench - prev.bench, total: w.end.pnl, totalBench: w.end.bench, invested: w.end.invested,
+      bought: trades.filter((t) => inWeek(t.entry_date)).length,
+      sold: trades.filter((t) => ["target", "stop", "time", "replaced"].includes(t.status) && inWeek(t.exit_date)).length };
+  });
+}
+function renderPaperWeeks(weeks) {
+  const el = $("paper-weeks");
+  if (paperState.step !== "week" || !weeks.length) { el.innerHTML = ""; return; }
+  const per = (v, base) => base ? ` <span class="sub">${pct(v / base * 100)}</span>` : "";
+  el.innerHTML = `<div class="paper-weeks"><h3>주마다 <span class="quiet">그 주에 늘거나 준 손익 · 최근 주가 위</span></h3>
+    <div class="tbl"><table class="score-tbl paper-tbl"><thead><tr><th class="l">주</th><th>AI 추천</th><th>지수에 넣었다면</th><th>지수보다</th><th>누적 AI</th><th>산 · 판</th></tr></thead>
+    <tbody>${[...weeks].reverse().map((w) => `<tr>
+      <td class="l"><b>${w.range}</b></td>
+      <td class="${tone(w.pnl)}">${signed(w.pnl)}원${per(w.pnl, w.invested)}</td>
+      <td class="${tone(w.bench)}">${signed(w.bench)}원${per(w.bench, w.invested)}</td>
+      <td class="${tone(w.pnl - w.bench)}">${signed(w.pnl - w.bench)}원</td>
+      <td class="${tone(w.total)}">${signed(w.total, man)}원<span class="sub">지수 ${signed(w.totalBench, man)}원</span></td>
+      <td>${w.bought}개 · ${w.sold}개</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+$("paper-step").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-step]"); if (!b) return;
+  paperState.step = b.dataset.step;
+  try { localStorage.setItem("paperStep", paperState.step); } catch {}
+  if (paperState.data) renderPaper();
+});
 async function loadPaper() {
   if (paperState.data) renderPaper();
   if (Date.now() - paperState.at < 5 * 60_000) return;  // 일봉 기준이라 5분에 한 번이면 충분하다
@@ -3778,7 +3826,10 @@ function renderPaper() {
       `<div class="mv"><span>${k}</span><b>${typeof v === "number" ? `${v}개` : v}</b></div>`).join("")}
     ${d.no_stop ? `<p class="quiet" style="font-size:12px">철회 기준 없이 나온 초기 추천 ${d.no_stop}개는 뺐어요.</p>` : ""}
     ${d.missing.length ? `<p class="quiet" style="font-size:12px">일봉이 없어 뺀 종목: ${d.missing.map(esc).join(", ")}</p>` : ""}`;
-  drawPaperCurve(d.curve);
+  $("paper-step").querySelectorAll("[data-step]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.step === paperState.step)));
+  const weeks = paperWeeks(d.curve, d.trades);
+  drawPaperCurve(paperState.step === "week" ? weeks.map((w) => ({ ...w.end, tick: mdOf(w.first), week: w })) : d.curve);
+  renderPaperWeeks(weeks);
   // 추천 하나하나: 들고 있는 중 / 판 거래 / 기다리는 중 / 안 산 추천
   const groups = [
     ["들고 있는 중", (t) => t.status === "holding", "지금 가격 기준"],
@@ -3818,8 +3869,10 @@ function drawPaperCurve(curve) {
   const hitW = Math.max(4, (W - padL - padR) / Math.max(1, n - 1));
   const md = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
   const hits = curve.map((c, i) => `<rect class="hit" x="${X(i) - hitW / 2}" y="${top - 8}" width="${hitW}" height="${H - top}"
-      data-tip="${esc(`<b>${md(c.date)}</b>\nAI 추천 ${signed(c.pnl)}원\n지수 ${signed(c.bench)}원\n산 추천 ${c.invested / 1e6}개`)}"/>
-    ${(i % step === 0 && n - 1 - i >= step / 2) || i === n - 1 ? `<text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${i === n - 1 ? "지금" : md(c.date)}</text>` : ""}`).join("");
+      data-tip="${esc(c.week
+        ? `<b>${c.week.range}</b>\n그 주 AI ${signed(c.week.pnl)}원 · 지수 ${signed(c.week.bench)}원\n누적 AI ${signed(c.pnl)}원 · 지수 ${signed(c.bench)}원`
+        : `<b>${md(c.date)}</b>\nAI 추천 ${signed(c.pnl)}원\n지수 ${signed(c.bench)}원\n산 추천 ${c.invested / 1e6}개`)}"/>
+    ${(i % step === 0 && n - 1 - i >= step / 2) || i === n - 1 ? `<text class="ax" x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${i === n - 1 ? "지금" : c.tick || md(c.date)}</text>` : ""}`).join("");
   el.innerHTML = `<div class="paper-legend"><span><i style="--c:var(--${cls === "down" ? "down" : "up"})"></i>AI 추천</span><span><i class="dash" style="--c:var(--ink-3)"></i>지수에 넣었다면</span></div>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="AI 추천 누적 손익 ${signed(last.pnl)}원, 지수 ${signed(last.bench)}원">
     <line class="gl" x1="${padL}" x2="${W - padR}" y1="${Y(0)}" y2="${Y(0)}" stroke-dasharray="3 3"/>
@@ -3827,7 +3880,7 @@ function drawPaperCurve(curve) {
     <circle class="pt ${cls}" cx="${X(n - 1)}" cy="${Y(last.pnl)}" r="4"/>
     <text class="vl strong" x="${X(n - 1)}" y="${Math.max(11, Y(last.pnl) - 9)}" text-anchor="end">${signed(last.pnl, man)}</text></svg>`;
 }
-addEventListener("resize", () => { if (paperState.data && state.view === "paper") drawPaperCurve(paperState.data.curve); });
+addEventListener("resize", () => { if (paperState.data && state.view === "paper") renderPaper(); });
 
 /* ── 차트 '오늘' 보기: 하루 1분봉, 최고·최저, 어제 종가 ─────────── */
 function todayKey() { return `${chart.meta.market}:${chart.meta.symbol}`; }

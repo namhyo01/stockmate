@@ -86,7 +86,7 @@ def test_totp_matches_rfc6238_vector():
 
 def test_setup_otp_keeps_existing_unless_reset():
     uri = orders.setup_otp()
-    assert uri.startswith("otpauth://totp/stockmate:")
+    assert uri.startswith("otpauth://totp/stockmate?secret=")
     with pytest.raises(orders.OrderError, match="이미 등록"):
         orders.setup_otp()
     assert orders.setup_otp(reset=True) != uri

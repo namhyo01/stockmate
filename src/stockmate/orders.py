@@ -123,7 +123,8 @@ def unlock_otp() -> None:
 
 
 def otp_uri(secret: str) -> str:
-    return f"otpauth://totp/{OTP_ISSUER}:toss-order?secret={secret}&issuer={OTP_ISSUER}&digits=6&period={OTP_STEP}"
+    # 6자리·30초는 Google OTP 기본값이라 뺀다 (주소가 짧을수록 QR이 작아서 터미널에서도 잘 찍힌다)
+    return f"otpauth://totp/{OTP_ISSUER}?secret={secret}&issuer={OTP_ISSUER}"
 
 
 def totp(secret: str, step: int) -> str:

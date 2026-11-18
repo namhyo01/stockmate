@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
@@ -257,6 +258,7 @@ def tag(
 def order_otp(
     reset: Annotated[bool, typer.Option("--reset", help="새 폰으로 바꾼다 (예전 폰의 코드는 더는 안 된다)")] = False,
     unlock: Annotated[bool, typer.Option("--unlock", help="OTP를 많이 틀려서 막힌 주문을 다시 연다")] = False,
+    image: Annotated[bool, typer.Option("--image", help="QR을 data/orders/otp-qr.png로도 저장한다 (찍은 뒤 꼭 지운다)")] = False,
 ) -> None:
     """계획 탭 '토스로 주문'에 쓸 Google OTP를 등록한다. 터미널에 나온 QR을 Google OTP 앱으로 찍는다.
 
@@ -275,10 +277,25 @@ def order_otp(
     except orders.OrderError as e:
         console.print(f"[yellow]{e}[/]")
         raise typer.Exit(1) from None
-    segno.make(uri, error="m").terminal(compact=True)
+    qr = segno.make(uri, error="m")
+    print(_terminal_qr(qr))
+    if image:
+        path = orders.DIR / "otp-qr.png"
+        qr.save(path, scale=10, border=4)
+        os.chmod(path, 0o600)
+        print(f"QR 이미지: {path} (맥에서 data/orders/otp-qr.png를 열어 찍고, 찍은 뒤 지우세요)")
     secret = uri.split("secret=")[1].split("&")[0]
     print(f"\nGoogle OTP 앱 > + > QR 코드 스캔 (또는 '설정 키 입력': {' '.join(secret[i:i + 4] for i in range(0, len(secret), 4))})")
     print("등록했으면 이 화면을 지우세요 (clear). 이 키가 있으면 누구나 OTP 코드를 만들 수 있어요.")
+
+
+def _terminal_qr(qr) -> str:
+    """터미널 테마(밝음·어두움)와 상관없이 검정 칸·흰 칸으로 그린다. 칸 하나 = 공백 두 개."""
+    black, white, reset = "\033[40m", "\033[107m", "\033[0m"
+    lines = []
+    for row in qr.matrix_iter(scale=1, border=4):
+        lines.append("".join(f"{black if dark else white}  " for dark in row) + reset)
+    return "\n".join(lines)
 
 
 # ── CSV 가져오기 ────────────────────────────────────────

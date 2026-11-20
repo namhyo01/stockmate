@@ -20,3 +20,16 @@ def test_summarize_high_low_and_change():
     assert s["high"] == {"time": "09:01", "price": 212000} and s["low"] == {"time": "09:02", "price": 205000}
     assert s["open"] == 210000 and s["last"] == 209500 and round(s["change_pct"], 2) == 4.75
     assert intraday.summarize([], None) is None
+
+
+def test_points_mark_sessions_outside_regular_hours():
+    import datetime as dt
+
+    from stockmate.market_data import NEW_YORK
+
+    rows = [(dt.datetime(2026, 11, 19, h, m, tzinfo=NEW_YORK), 100.0 + i, 0.0) for i, (h, m) in enumerate([(8, 0), (9, 30), (15, 59), (16, 0), (19, 59)])]
+    s = intraday.summarize(rows, 99.0, "US")
+    assert [p[4] for p in s["points"]] == ["pre", "", "", "post", "post"] and s["session"] == "post"
+    krx = intraday.summarize(intraday.parse_naver(XML), 200000, "KRX")
+    assert [p[4] for p in krx["points"]] == ["", "", "", ""] and krx["session"] is None
+    assert intraday.session_of("KRX", dt.datetime(2026, 11, 19, 16, 0, tzinfo=intraday.SEOUL)) == "nxt"

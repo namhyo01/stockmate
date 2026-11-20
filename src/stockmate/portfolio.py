@@ -11,8 +11,17 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from stockmate.market_data import PriceProvider, previous_closes
-from stockmate.models import Account, AccountKind, Broker, Holding, Instrument, Market, Side, Trade
+from stockmate.market_data import PriceProvider, market_sessions, previous_closes
+from stockmate.models import (
+    Account,
+    AccountKind,
+    Broker,
+    Holding,
+    Instrument,
+    Market,
+    Side,
+    Trade,
+)
 
 ZERO = Decimal(0)
 AVG_COST_PRECISION = Decimal("0.000001")
@@ -230,6 +239,7 @@ class Position:
     fx_rate: Decimal
     cost_fx_rate: Decimal | None = None  # 매입 평균 환율. 없으면 현재 환율(fx_rate)로 원금을 계산한다
     prev_close: Decimal | None = None  # 전일 종가 (오늘 등락 계산용)
+    session: str | None = None  # 현재가가 미국 정규장 밖 거래면 "pre"(프리마켓) / "post"(애프터마켓)
 
     @property
     def cost(self) -> Decimal:
@@ -306,6 +316,7 @@ def build_positions(session: Session, provider: PriceProvider) -> list[Position]
     keys = {(h.instrument.market, h.instrument.symbol) for h in holdings}
     prices = provider.last_prices(keys)
     prev = previous_closes(provider, keys)
+    sessions = market_sessions(provider, keys)
     fx_rates = {c: provider.fx_to_krw(c) for c in {h.instrument.currency for h in holdings}}
     return [
         Position(
@@ -317,6 +328,7 @@ def build_positions(session: Session, provider: PriceProvider) -> list[Position]
             fx_rate=fx_rates[h.instrument.currency],
             cost_fx_rate=h.avg_fx if h.instrument.currency != "KRW" else None,
             prev_close=prev.get((h.instrument.market, h.instrument.symbol)),
+            session=sessions.get((h.instrument.market, h.instrument.symbol)),
         )
         for h in holdings
     ]

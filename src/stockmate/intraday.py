@@ -1,7 +1,8 @@
 """차트의 '오늘' 보기: 하루 분봉 (1분), 그날 최고가·최저가, 어제 종가.
 
 - 국내 종목: 네이버 증권 분봉 (지연 없음, 장 마감 뒤 NXT 거래도 들어 있다). 분마다 종가와 누적 거래량만 준다.
-- 미국 종목·시장 지표: yfinance 1분봉 (마지막 거래일). 시간은 모두 한국 시간으로 바꾼다.
+- 미국 종목·시장 지표: yfinance 1분봉 (마지막 거래일, 미국 종목은 프리·애프터마켓 포함). 시간은 모두 한국 시간으로 바꾼다.
+점마다 정규장 밖 거래인지(국내 "nxt", 미국 "pre"/"post")를 붙인다.
 같은 종목을 여러 번 열어도 30초 동안은 다시 받지 않는다.
 """
 
@@ -15,6 +16,7 @@ import urllib.request
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from stockmate.market_data import us_session_of
 from stockmate.models import Market
 
 log = logging.getLogger(__name__)
@@ -48,11 +50,11 @@ def _naver_minutes(symbol: str) -> list[tuple[dt.datetime, float, float]]:
         return parse_naver(response.read().decode("euc-kr", errors="replace"))
 
 
-def _yf_minutes(ticker: str) -> tuple[list[tuple[dt.datetime, float, float]], float | None]:
+def _yf_minutes(ticker: str, prepost: bool = False) -> tuple[list[tuple[dt.datetime, float, float]], float | None]:
     import yfinance as yf
 
     t = yf.Ticker(ticker)
-    frame = t.history(period="1d", interval="1m")
+    frame = t.history(period="1d", interval="1m", prepost=prepost)
     rows = [
         (idx.to_pydatetime().astimezone(SEOUL), float(r["Close"]), float(r.get("Volume", 0) or 0))
         for idx, r in frame.iterrows()
@@ -65,7 +67,20 @@ def _yf_minutes(ticker: str) -> tuple[list[tuple[dt.datetime, float, float]], fl
     return rows, prev
 
 
-def summarize(rows: list[tuple[dt.datetime, float, float]], prev_close: float | None) -> dict[str, Any] | None:
+KRX_OPEN, KRX_CLOSE = dt.time(9, 0), dt.time(15, 30)
+
+
+def session_of(market: str, moment: dt.datetime) -> str:
+    """정규장 밖 거래 표시: 국내 "nxt", 미국 "pre"/"post", 정규장·지표는 ""."""
+    if market == Market.KRX.value:
+        t = moment.astimezone(SEOUL).time()
+        return "" if KRX_OPEN <= t <= KRX_CLOSE else "nxt"
+    if market == Market.US.value:
+        return us_session_of(moment) or ""
+    return ""
+
+
+def summarize(rows: list[tuple[dt.datetime, float, float]], prev_close: float | None, market: str = "") -> dict[str, Any] | None:
     """분봉 → 화면용: 점들, 시가, 최고·최저(시각 포함), 마지막 값, 어제 종가 대비."""
     if not rows:
         return None
@@ -74,7 +89,9 @@ def summarize(rows: list[tuple[dt.datetime, float, float]], prev_close: float | 
     last = rows[-1][1]
     return {
         "date": rows[0][0].date().isoformat(),
-        "points": [[r[0].strftime("%H:%M"), r[1], r[2], r[0].isoformat(timespec="minutes")] for r in rows],  # 시각, 가격, 거래량, 한국 시각
+        # 시각, 가격, 거래량, 한국 시각, 정규장 밖 거래("nxt"/"pre"/"post", 정규장은 "")
+        "points": [[r[0].strftime("%H:%M"), r[1], r[2], r[0].isoformat(timespec="minutes"), session_of(market, r[0])] for r in rows],
+        "session": session_of(market, rows[-1][0]) or None,  # 마지막 가격이 정규장 밖 거래인가
         "open": rows[0][1],
         "last": last,
         "high": {"time": hi[0].strftime("%H:%M"), "price": hi[1]},
@@ -97,8 +114,8 @@ def today(market: str, symbol: str, prev_close: float | None = None, yf_ticker: 
         if market == Market.KRX.value:
             rows, yf_prev = _naver_minutes(symbol), None
         else:
-            rows, yf_prev = _yf_minutes(yf_ticker or symbol)
-        result = summarize(rows, prev_close or yf_prev)
+            rows, yf_prev = _yf_minutes(yf_ticker or symbol, prepost=market == Market.US.value)
+        result = summarize(rows, prev_close or yf_prev, market)
     except Exception as e:
         log.warning("분봉 조회 실패 %s: %s", symbol, e)
         result = None

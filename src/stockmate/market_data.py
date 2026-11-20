@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from stockmate.models import Market
 
@@ -44,6 +45,108 @@ def previous_closes(provider: object, keys: Iterable[Key]) -> dict[Key, Decimal]
     """
     method = getattr(provider, "previous_closes", None)
     return method(keys) if method else {}
+
+
+def market_sessions(provider: object, keys: Iterable[Key]) -> dict[Key, str]:
+    """정규장 밖 가격을 쓴 종목: (시장, 종목) → "pre"(프리마켓) / "post"(애프터마켓). 지원하지 않으면 빈 dict."""
+    method = getattr(provider, "sessions", None)
+    return method(keys) if method else {}
+
+
+# ── 미국 프리마켓·애프터마켓 ─────────────────────────
+# 한투 해외 현재가(HHDFS00000300)는 정규장 가격만 준다. 정규장 밖에서는 yfinance 1분봉(프리·애프터 포함)의
+# 마지막 거래가를 현재가로 쓴다. 장이 끝난 밤사이(20시~다음 날 4시, 뉴욕)와 주말에도 마지막 애프터마켓 가격을 쓴다.
+
+NEW_YORK = ZoneInfo("America/New_York")
+US_OPEN, US_CLOSE = dt.time(9, 30), dt.time(16, 0)
+EXTENDED_TTL = dt.timedelta(seconds=60)
+
+_ext_lock = threading.Lock()
+_ext_cache: dict[str, tuple[dt.datetime, tuple[Decimal, str] | None]] = {}
+
+
+def us_regular(now: dt.datetime | None = None) -> bool:
+    """지금 미국 정규장(평일 9:30~16:00, 뉴욕 시각) 시간인가. 휴장일은 따지지 않는다."""
+    local = (now or dt.datetime.now(dt.UTC)).astimezone(NEW_YORK)
+    return local.weekday() < 5 and US_OPEN <= local.time() < US_CLOSE
+
+
+def us_session_of(moment: dt.datetime) -> str | None:
+    """그 시각의 거래가 프리마켓("pre")·애프터마켓("post")인가. 정규장이면 None."""
+    t = moment.astimezone(NEW_YORK).time()
+    return "pre" if t < US_OPEN else "post" if t >= US_CLOSE else None
+
+
+def _download_extended(symbols: list[str]) -> dict[str, tuple[Decimal, str]]:
+    """마지막 거래일 1분봉(프리·애프터 포함)의 마지막 가격이 정규장 밖 거래면 (가격, 세션)."""
+    import yfinance as yf
+
+    try:
+        closes = yf.download(symbols, period="1d", interval="1m", prepost=True, progress=False, auto_adjust=False)["Close"]
+    except Exception as e:
+        log.warning("미국 프리·애프터마켓 시세 조회 실패 %s: %s", symbols, e)
+        return {}
+    result = {}
+    for symbol in symbols:
+        if symbol not in closes or (series := closes[symbol].dropna()).empty:
+            continue
+        if session := us_session_of(series.index[-1].to_pydatetime()):
+            result[symbol] = (_to_decimal(series.iloc[-1]), session)
+    return result
+
+
+def extended_prices(symbols: Iterable[str], download=_download_extended) -> dict[str, tuple[Decimal, str]]:
+    """종목 → (정규장 밖 마지막 가격, "pre"/"post"). 종목마다 60초 캐시 (실패도 60초 동안 다시 묻지 않는다)."""
+    symbols = list(symbols)
+    now = dt.datetime.now()
+    with _ext_lock:
+        stale = [s for s in symbols if s not in _ext_cache or now - _ext_cache[s][0] > EXTENDED_TTL]
+    if stale:
+        fetched = download(stale)
+        with _ext_lock:
+            for s in stale:
+                _ext_cache[s] = (now, fetched.get(s))
+    with _ext_lock:
+        return {s: v for s in symbols if (v := _ext_cache.get(s, (now, None))[1])}
+
+
+class ExtendedHours:
+    """다른 시세 제공자를 감싸서, 미국 정규장 밖이면 미국 종목 현재가를 프리·애프터마켓 가격으로 바꾼다.
+
+    오늘 등락의 기준(전일 종가): 애프터마켓은 그대로(그날 정규장 + 애프터 변화), 프리마켓은 지난 정규장 종가.
+    """
+
+    def __init__(self, inner: PriceProvider, extended: Callable[[list[str]], dict[str, tuple[Decimal, str]]] = extended_prices,
+                 now: Callable[[], dt.datetime] | None = None):  # fmt: skip
+        self._inner = inner
+        self._extended = extended
+        self._now = now or (lambda: dt.datetime.now(dt.UTC))
+        self._prev: dict[Key, Decimal] = {}
+        self._sessions: dict[Key, str] = {}
+
+    def last_prices(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
+        keys = set(keys)
+        prices = self._inner.last_prices(keys)
+        prev = previous_closes(self._inner, keys)
+        us = sorted(symbol for market, symbol in prices if market is Market.US)
+        if us and not us_regular(self._now()):
+            for symbol, (price, session) in self._extended(us).items():
+                key = (Market.US, symbol)
+                if session == "pre":  # 프리마켓: 지금 '현재가'인 지난 정규장 종가가 오늘의 기준
+                    prev[key] = prices[key]
+                prices[key] = price
+                self._sessions[key] = session
+        self._prev.update(prev)
+        return prices
+
+    def previous_closes(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
+        return {k: self._prev[k] for k in keys if k in self._prev}
+
+    def sessions(self, keys: Iterable[Key]) -> dict[Key, str]:
+        return {k: self._sessions[k] for k in keys if k in self._sessions}
+
+    def fx_to_krw(self, currency: str) -> Decimal:
+        return self._inner.fx_to_krw(currency)
 
 
 def _to_decimal(value: float) -> Decimal:
@@ -150,6 +253,7 @@ class CachedPrices:
             self._inner = self._factory()
             self._prices: dict[Key, Decimal] = {}
             self._prev: dict[Key, Decimal] = {}
+            self._sessions: dict[Key, str] = {}
             self._fx: dict[str, Decimal] = {}
             self.fetched_at: dt.datetime | None = None
 
@@ -164,12 +268,17 @@ class CachedPrices:
             if missing := keys - self._prices.keys():
                 self._prices.update(self._inner.last_prices(missing))
                 self._prev.update(previous_closes(self._inner, missing))
+                self._sessions.update(market_sessions(self._inner, missing))
                 self.fetched_at = self.fetched_at or dt.datetime.now()
             return {k: self._prices[k] for k in keys if k in self._prices}
 
     def previous_closes(self, keys: Iterable[Key]) -> dict[Key, Decimal]:
         with self._lock:
             return {k: self._prev[k] for k in keys if k in self._prev}
+
+    def sessions(self, keys: Iterable[Key]) -> dict[Key, str]:
+        with self._lock:
+            return {k: self._sessions[k] for k in keys if k in self._sessions}
 
     def fx_to_krw(self, currency: str) -> Decimal:
         with self._lock:

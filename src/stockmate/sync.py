@@ -10,7 +10,7 @@ from stockmate import importers, portfolio
 from stockmate.brokers.kis import KisClient, KisError, KisMarketData
 from stockmate.brokers.toss import TossClient, TossError
 from stockmate.config import settings
-from stockmate.market_data import PriceProvider, PublicMarketData
+from stockmate.market_data import ExtendedHours, PriceProvider, PublicMarketData
 from stockmate.models import Account, AccountKind, Broker, Market
 from stockmate.portfolio import PortfolioError
 
@@ -41,12 +41,12 @@ def make_kis_client() -> KisClient:
 
 
 def price_provider() -> PriceProvider:
-    """한투 API가 설정돼 있으면 한투 시세를, 아니면 공개 데이터를 쓴다."""
+    """한투 API가 설정돼 있으면 한투 시세를, 아니면 공개 데이터를 쓴다. 미국 정규장 밖에는 프리·애프터마켓 가격."""
     if not kis_configured():
-        return PublicMarketData()
-    return KisMarketData(
+        return ExtendedHours(PublicMarketData())
+    return ExtendedHours(KisMarketData(
         make_kis_client(), PublicMarketData(), settings.db_path.parent / "kis_exchanges.json"
-    )
+    ))
 
 
 def sync_kis(

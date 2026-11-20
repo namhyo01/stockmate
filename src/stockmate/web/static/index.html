@@ -333,6 +333,8 @@ table.hold { width: 100%; border-collapse: collapse; font-size: 14px; min-width:
 .ptag.sell { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 .ptag.met.buy { background: var(--up); color: #fff; }
 .ptag.met.sell { background: var(--down); color: #fff; }
+/* 미국 정규장 밖(프리·애프터마켓) 가격 표시 */
+.sess { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; font-weight: 600; line-height: 16px; vertical-align: 1px; color: var(--ink-2); background: var(--sunken); white-space: nowrap; }
 .hold tr.plan-buy td { background: color-mix(in srgb, var(--up) 7%, var(--surface)); }
 .hold tbody tr.plan-buy:hover td { background: color-mix(in srgb, var(--up) 11%, var(--surface)); }
 .mrow.plan-buy { background: color-mix(in srgb, var(--up) 7%, var(--surface)); }
@@ -1483,7 +1485,7 @@ function renderTable() {
         <div class="s">${esc(p.account)}, ${esc(p.symbol)}${p.strategy_label ? `, ${esc(p.strategy_label)}` : ""}</div></td>
       <td>${qty(p.quantity)}</td>
       <td>${price(p.avg_cost, p.currency)}</td>
-      <td><span class="${flashOf(p)}">${price(p.price, p.currency)}</span></td>
+      <td><span class="${flashOf(p)}">${price(p.price, p.currency)}</span>${sessTag(p)}</td>
       <td class="pct ${tone(p.day_change_pct)}" title="${p.day_pnl_krw == null ? "전일 종가를 모르는 종목이에요" : `오늘 ${signed(p.day_pnl_krw)}원`}">${pct(p.day_change_pct)}</td>
       <td>${planBar(p)}</td>
       <td><span class="${flashOf(p)}">${won(p.value_krw)}</span></td>
@@ -1530,6 +1532,13 @@ function planBar(p, compact = false) {
 
 // 열린 매매 계획 표시. 표시를 누르면 계획 탭으로 간다.
 const planClass = (p) => (p.plans || []).some((x) => x.side === "buy") ? "plan-buy" : "";
+// 현재가가 미국 정규장 밖 거래면 "애프터"/"프리" 표시 (오늘 등락에도 그 거래가 들어 있다)
+const SESSION_NAMES = { pre: "프리마켓", post: "애프터마켓" };
+function sessTag(p) {
+  if (!SESSION_NAMES[p.session]) return "";
+  const why = p.session === "pre" ? "지난 정규장 종가 대비" : "어제 종가 대비, 오늘 정규장과 애프터마켓 변화를 합친 값";
+  return `<span class="sess" title="${SESSION_NAMES[p.session]} 가격이에요. 오늘 등락은 ${why}이에요">${p.session === "pre" ? "프리" : "애프터"}</span>`;
+}
 function planTags(p, link = true) {
   const seen = new Set();
   return (p.plans || []).filter((x) => !seen.has(x.side) && seen.add(x.side)).map((x) => {
@@ -1603,7 +1612,7 @@ function renderList(groups) {
     return `<div class="mrow ${planClass(p)}">
       <button type="button" class="mrow-h" data-row="${esc(key)}" aria-expanded="${open}" style="--c:${acctColor(p.account_id)}">
         <i></i>
-        <span class="l"><b><span>${esc(p.name)}</span>${planTags(p, false)}</b><small>${esc(p.account)} · ${p.quantity == null ? "-" : p.quantity.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}주${p.day_change_pct == null ? "" : ` · <span class="day ${tone(p.day_change_pct)}">오늘 ${pct(p.day_change_pct)}</span>`}</small></span>
+        <span class="l"><b><span>${esc(p.name)}</span>${planTags(p, false)}</b><small>${esc(p.account)} · ${p.quantity == null ? "-" : p.quantity.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}주${p.day_change_pct == null ? "" : ` · <span class="day ${tone(p.day_change_pct)}">오늘 ${pct(p.day_change_pct)}</span>`}${sessTag(p)}</small></span>
         <span class="r"><b><span class="${flashOf(p)}">${won(p.value_krw)}원</span></b><small class="${tone(p.pnl_krw)}">${signed(p.pnl_krw)} (${pct(p.pnl_pct, 1)})</small></span>
         ${planBar(p, true) ? `<span class="mbar">${planBar(p, true)}</span>` : ""}
       </button>${open ? `<dl class="mdet">${detail.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
@@ -2842,7 +2851,7 @@ function myPosition(meta = chart.meta) {
     <dl>
       <div><dt>수량</dt><dd>${qty(p.quantity)}주</dd></div>
       <div><dt>평단</dt><dd>${price(p.avg_cost, p.currency)}</dd></div>
-      <div><dt>현재가</dt><dd>${price(p.price, p.currency)}</dd></div>
+      <div><dt>현재가</dt><dd>${price(p.price, p.currency)}${sessTag(p)}</dd></div>
       <div><dt>평가금</dt><dd>${won(p.value_krw)}원<small class="quiet">비중 ${p.weight?.toFixed(1) ?? "-"}%</small></dd></div>
       <div><dt>손익</dt><dd class="${tone(p.pnl_krw)}">${signed(p.pnl_krw)}원<small>${pct(p.pnl_pct)}</small></dd></div>
       <div><dt>오늘</dt><dd class="${tone(p.day_pnl_krw)}">${signed(p.day_pnl_krw)}원<small>${pct(p.day_change_pct)}</small></dd></div>
@@ -3921,20 +3930,15 @@ function drawToday(el) {
     lastX = X(i);
     out.push(`<line class="grid" x1="${X(i)}" x2="${X(i)}" y1="${top}" y2="${volTop + volH}" opacity=".5"/><text class="axis" x="${X(i)}" y="${H - 5}" text-anchor="middle">${p[0].slice(0, 2)}시</text>`);
   });
-  // 국내 정규장(09:00~15:30) 밖의 NXT 거래 시간은 옅게 칠한다
-  if (chart.meta.market === "KRX") {
-    const outside = (t) => t < "09:00" || t > "15:30";
-    let from = null;
-    pts.forEach((p, i) => {
-      const o = outside(p[0]);
-      if (o && from === null) from = i;
-      if ((!o || i === n - 1) && from !== null) {
-        const to = o ? i : i - 1;
-        out.push(`<rect class="future" x="${X(from) - bw / 2}" y="${top}" width="${(to - from + 1) * bw}" height="${priceH}"/>
-          <text class="future-label" x="${X(from) - bw / 2 + 6}" y="${top + 14}">NXT 거래</text>`);
-        from = null;
-      }
-    });
+  // 정규장 밖 거래 시간은 옅게 칠한다: 국내 NXT(09:00~15:30 밖), 미국 프리·애프터마켓 (서버가 점마다 붙인 p[4])
+  const extLabel = (p) => ({ nxt: "NXT 거래", pre: "프리마켓", post: "애프터마켓" })[p[4] ?? (chart.meta.market === "KRX" && (p[0] < "09:00" || p[0] > "15:30") ? "nxt" : "")];
+  for (let i = 0; i < n;) {
+    const label = extLabel(pts[i]);
+    let j = i;
+    while (j + 1 < n && extLabel(pts[j + 1]) === label) j++;
+    if (label) out.push(`<rect class="future" x="${X(i) - bw / 2}" y="${top}" width="${(j - i + 1) * bw}" height="${priceH}"/>
+      <text class="future-label" x="${X(i) - bw / 2 + 6}" y="${top + 14}">${label}</text>`);
+    i = j + 1;
   }
   // 어제 종가 기준선
   if (td.prev_close != null && !isHidden("prev")) {
@@ -3984,7 +3988,7 @@ function todayReadout(el) {
   const chg = td.prev_close ? (p[1] / td.prev_close - 1) * 100 : null;
   const day = new Date(td.date + "T00:00:00");
   el.innerHTML = `<b class="${tone(chg)}">${chartPrice(p[1], d)}</b><span class="${tone(chg)}">${pct(chg)}</span>
-    <span>${chart.meta.market === "KRX" ? `${td.date.replaceAll("-", ".")}(${WEEK[day.getDay()]})` : `${td.date.slice(5).replace("-", "/")} 시작한 장`} ${p[0]}${i === pts.length - 1 ? " 기준" : ""}</span>
+    <span>${chart.meta.market === "KRX" ? `${td.date.replaceAll("-", ".")}(${WEEK[day.getDay()]})` : `${td.date.slice(5).replace("-", "/")} 시작한 장`} ${p[0]}${i === pts.length - 1 ? " 기준" : ""}${({ pre: " 프리마켓", post: " 애프터마켓" })[p[4]] ?? ""}</span>
     <span><span class="k">시</span>${chartPrice(td.open, d)}</span>
     <span><span class="k">고</span><b class="up" style="font-size:inherit">${chartPrice(td.high.price, d)}</b> <span class="k">${td.high.time}</span></span>
     <span><span class="k">저</span><b class="down" style="font-size:inherit">${chartPrice(td.low.price, d)}</b> <span class="k">${td.low.time}</span></span>

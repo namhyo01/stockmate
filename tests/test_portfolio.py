@@ -224,3 +224,17 @@ def test_provider_without_previous_closes_has_no_day_change(session, toss):
     [p] = portfolio.build_positions(session, FakePrices({(Market.KRX, "005930"): D(10)}))
     assert p.day_change_pct is None and p.day_pnl_krw is None
     assert portfolio.totals([p]).day_pnl_krw == 0
+
+
+def test_position_carries_extended_session(session, toss):
+    instrument = portfolio.get_or_create_instrument(session, "AAPL")
+    portfolio.set_holding(session, toss, instrument, D(1), D(1))
+
+    class AfterHours(FakePrices):
+        def sessions(self, keys):
+            return {(Market.US, "AAPL"): "post"}
+
+    [p] = portfolio.build_positions(session, AfterHours({(Market.US, "AAPL"): D(10)}))
+    assert p.session == "post"
+    [p] = portfolio.build_positions(session, FakePrices({(Market.US, "AAPL"): D(10)}))
+    assert p.session is None

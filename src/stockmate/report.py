@@ -140,6 +140,7 @@ def build_snapshot(session: Session, provider: PriceProvider) -> dict[str, Any]:
                 "prev_close": _num(p.prev_close),
                 "day_change_pct": _num(p.day_change_pct),
                 "day_pnl_krw": _num(p.day_pnl_krw),
+                "session": p.session,
                 "weight": weight(p.value_krw),
                 "plans": plans_for(p),
             }

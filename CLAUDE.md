@@ -22,7 +22,7 @@ uv run stock web             # 웹 대시보드 http://localhost:8000
 src/stockmate/
   models.py        Account(계좌), Instrument(종목), Holding(잔고), Trade(매매), Recommendation(추천 기록), PlanItem(매매 계획), Idea(AI 추천 종목)
   portfolio.py     매매 기록, 이동평균 단가, 평가, 합계
-  market_data.py   PriceProvider 프로토콜(+선택: previous_closes 전일 종가 → 오늘 등락), 공개 시세(FinanceDataReader·yfinance), CachedPrices
+  market_data.py   PriceProvider 프로토콜(+선택: previous_closes 전일 종가 → 오늘 등락), 공개 시세(FinanceDataReader·yfinance), CachedPrices, ExtendedHours(미국 정규장 밖이면 미국 종목 현재가를 yfinance 1분봉 프리·애프터마켓 마지막 가격으로: 한투 해외 현재가는 정규장 가격만 준다. 밤사이·주말에도 마지막 애프터 가격. 오늘 등락 기준은 애프터면 어제 종가, 프리면 지난 정규장 종가. 종목마다 60초 캐시. sessions()로 화면에 '애프터'/'프리' 표시)
   brokers/kis.py   한국투자증권 Open API (조회 전용: 잔고, 예수금, 국내·해외 현재가)
   brokers/toss.py  토스증권 Open API (허용 경로의 GET + 지정가 주문·주문 조회·취소만 보낸다. 정정·조건주문·시장가는 없다. 키 자체는 모든 주문 권한이 있다)
   orders.py        토스 지정가 주문(계획 탭 '토스로 매수/매도', /api/plans/{id}/order): 토스 계좌의 열린 계획만, 주문마다 Google OTP(TOTP 6자리, 직접 구현, 한 코드는 한 번만, 앞뒤 30초 허용, 10분에 5번 틀리면 잠시·24시간에 20번이면 `stock order-otp --unlock`까지 잠금, 틀린 기록은 파일에 남아 재시작해도 이어지고 틀릴 때마다 웹 푸시. 비밀 키는 data/orders/otp.json(600), 등록은 터미널 `stock order-otp [--reset] [--image]`(QR을 검정·흰 칸 색을 직접 지정해 그린다: 블록 문자·반전 색은 밝은 테마에서 안 찍혔다. --image는 data/orders/otp-qr.png)에서만, 웹에는 키를 내보내지 않는다. 안 되는 주문은 OTP 확인 전에 걸러서 코드를 낭비하지 않는다), 한 번에 100만원·최근 24시간 300만원(매수·매도 합산, 취소·거부는 체결분만, 미국은 환율에 1% 여유), 지금 가격보다 5% 넘게 비싸게 사거나 싸게 파는 주문 차단, 같은 종목·방향에 끝나지 않은 주문이 있으면 새 주문 차단(계획이 바뀌어도), clientOrderId로 재시도 안전(409 처리 중은 다시 시도). 토스가 확실히 거절한 것(400·401·403·404·422·429, 409 중 처리 중이 아닌 것)만 REJECTED, 나머지 오류·응답 없음은 UNKNOWN('확인 필요', 한도에 그대로 세고 같은 종목 주문을 막는다)으로 두고 사람이 토스 앱을 보고 '안 들어갔어요/들어갔어요'로 정리(resolve)한다. 자동으로 다시 보내지 않는다. 기록은 data/orders/orders.json, 전부 체결되면 계획을 done으로. OTP를 등록하지 않으면 버튼이 안 보인다
@@ -35,7 +35,7 @@ src/stockmate/
   discovery.py     매주 토요일 8시 종목 발굴(웹 서버 스레드, `stock discover`): 훑기 → 후보 → claude -p(웹 검색)가 3~5개 → Idea(source=weekly), 추천 성적표
   symbols.py       질문 글에서 종목 찾기 + 검색 탭 자동완성(미국 약 7,000종목 data/us_names.json): 국내 종목·ETF 이름 목록(data/krx_names.json, 일주일 캐시), 미국 종목 한글 이름표, DB 종목명. 두 글자 이름은 잘 알려진 것만
   technical.py     일봉(FDR·yfinance, 30분 캐시) → 이동평균·일목균형표·RSI·MACD·볼린저·거래량·캔들 패턴 계산 → 프롬프트용 차트 요약 (AI는 해석만)
-  intraday.py      차트 "오늘" 보기: 국내는 네이버 1분봉(지연 없음, NXT 포함), 미국·지표는 yfinance 1분봉, 30초 캐시. 최고·최저·어제 종가
+  intraday.py      차트 "오늘" 보기: 국내는 네이버 1분봉(지연 없음, NXT 포함), 미국은 yfinance 1분봉(프리·애프터 포함, 어제 종가는 대시보드와 같은 기준), 지표는 yfinance 1분봉, 30초 캐시. 점마다 정규장 밖 거래 표시(nxt/pre/post, 화면에서 옅게 칠한다). 최고·최저·어제 종가
   markets.py       화면 위 시장 지표 띠(/api/markets, 20초 캐시): 네이버 증권(코스피·코스닥·미국 지수·니케이·환율·미국 10년물, 지연 없음) + yfinance(비트코인)
   research.py      검색 탭: 종목의 지금 걸린 발굴 패턴과 과거 성과, claude -p(웹 검색) 종목 분석 → data/research/(추천 카드 포함), 대화 기록에도 남김. "추천 탭에 담기" → Idea(source=search), "계획 탭에 담기" → 초안(분석의 actions 블록, 예전 분석은 글에서 뽑음)을 사용자가 고친 뒤 PlanItem(source=search)
   analysis.py      claude -p 실행 (분석 리포트, 질문 답변)

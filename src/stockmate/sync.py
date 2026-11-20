@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field, replace
+from decimal import Decimal
+
+import httpx
 
 from sqlalchemy.orm import Session
 
@@ -10,9 +15,18 @@ from stockmate import importers, portfolio
 from stockmate.brokers.kis import KisClient, KisError, KisMarketData
 from stockmate.brokers.toss import TossClient, TossError
 from stockmate.config import settings
-from stockmate.market_data import ExtendedHours, PriceProvider, PublicMarketData
+from stockmate.market_data import (
+    ExtendedHours,
+    PriceProvider,
+    PublicMarketData,
+    download_extended,
+    extended_prices,
+    us_session_of,
+)
 from stockmate.models import Account, AccountKind, Broker, Market
 from stockmate.portfolio import PortfolioError
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,12 +55,39 @@ def make_kis_client() -> KisClient:
 
 
 def price_provider() -> PriceProvider:
-    """한투 API가 설정돼 있으면 한투 시세를, 아니면 공개 데이터를 쓴다. 미국 정규장 밖에는 프리·애프터마켓 가격."""
+    """한투 API가 설정돼 있으면 한투 시세를, 아니면 공개 데이터를 쓴다. 미국 정규장 밖에는 프리·애프터·데이마켓 가격."""
+    extended = lambda symbols: extended_prices(symbols, extended_download)  # noqa: E731
     if not kis_configured():
-        return ExtendedHours(PublicMarketData())
+        return ExtendedHours(PublicMarketData(), extended)
     return ExtendedHours(KisMarketData(
         make_kis_client(), PublicMarketData(), settings.db_path.parent / "kis_exchanges.json"
-    ))
+    ), extended)
+
+
+_price_client: TossClient | None = None
+
+
+def extended_download(symbols: list[str], toss=None, fallback=download_extended) -> dict[str, tuple[Decimal, str]]:
+    """미국 정규장 밖 가격: 토스 시세(실시간, 데이마켓 포함)를 먼저, 토스가 모르는 종목은 yfinance 1분봉.
+
+    토스가 답한 종목의 마지막 체결이 정규장 시간이면 정규장 밖 거래가 아직 없는 것이라 넣지 않는다.
+    """
+    global _price_client
+    result: dict[str, tuple[Decimal, str]] = {}
+    answered: set[str] = set()
+    if toss is None and toss_configured():
+        toss = _price_client = _price_client or make_toss_client()
+    if toss is not None:
+        try:
+            for symbol, (price, at) in toss.prices(symbols).items():
+                answered.add(symbol)
+                if session := us_session_of(at):
+                    result[symbol] = (price, session)
+        except (TossError, httpx.HTTPError, ValueError, KeyError) as e:
+            log.warning("토스 시세 조회 실패: %s", e)
+    if missing := [s for s in symbols if s not in answered]:
+        result.update(fallback(missing))
+    return result
 
 
 def sync_kis(

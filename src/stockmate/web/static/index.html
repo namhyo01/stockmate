@@ -1532,12 +1532,11 @@ function planBar(p, compact = false) {
 
 // 열린 매매 계획 표시. 표시를 누르면 계획 탭으로 간다.
 const planClass = (p) => (p.plans || []).some((x) => x.side === "buy") ? "plan-buy" : "";
-// 현재가가 미국 정규장 밖 거래면 "애프터"/"프리" 표시 (오늘 등락에도 그 거래가 들어 있다)
-const SESSION_NAMES = { pre: "프리마켓", post: "애프터마켓" };
+// 현재가가 미국 정규장 밖 거래면 "프리"/"애프터"/"데이" 표시. 오늘 등락은 토스처럼 지난 정규장 종가 대비
+const SESSION_NAMES = { pre: "프리마켓", post: "애프터마켓", day: "데이마켓" };
 function sessTag(p) {
   if (!SESSION_NAMES[p.session]) return "";
-  const why = p.session === "pre" ? "지난 정규장 종가 대비" : "어제 종가 대비, 오늘 정규장과 애프터마켓 변화를 합친 값";
-  return `<span class="sess" title="${SESSION_NAMES[p.session]} 가격이에요. 오늘 등락은 ${why}이에요">${p.session === "pre" ? "프리" : "애프터"}</span>`;
+  return `<span class="sess" title="${SESSION_NAMES[p.session]} 가격이에요. 오늘 등락은 토스처럼 지난 정규장 종가 대비예요">${SESSION_NAMES[p.session].slice(0, -2)}</span>`;
 }
 function planTags(p, link = true) {
   const seen = new Set();
@@ -3931,7 +3930,7 @@ function drawToday(el) {
     out.push(`<line class="grid" x1="${X(i)}" x2="${X(i)}" y1="${top}" y2="${volTop + volH}" opacity=".5"/><text class="axis" x="${X(i)}" y="${H - 5}" text-anchor="middle">${p[0].slice(0, 2)}시</text>`);
   });
   // 정규장 밖 거래 시간은 옅게 칠한다: 국내 NXT(09:00~15:30 밖), 미국 프리·애프터마켓 (서버가 점마다 붙인 p[4])
-  const extLabel = (p) => ({ nxt: "NXT 거래", pre: "프리마켓", post: "애프터마켓" })[p[4] ?? (chart.meta.market === "KRX" && (p[0] < "09:00" || p[0] > "15:30") ? "nxt" : "")];
+  const extLabel = (p) => ({ nxt: "NXT 거래", ...SESSION_NAMES })[p[4] ?? (chart.meta.market === "KRX" && (p[0] < "09:00" || p[0] > "15:30") ? "nxt" : "")];
   for (let i = 0; i < n;) {
     const label = extLabel(pts[i]);
     let j = i;
@@ -3988,7 +3987,7 @@ function todayReadout(el) {
   const chg = td.prev_close ? (p[1] / td.prev_close - 1) * 100 : null;
   const day = new Date(td.date + "T00:00:00");
   el.innerHTML = `<b class="${tone(chg)}">${chartPrice(p[1], d)}</b><span class="${tone(chg)}">${pct(chg)}</span>
-    <span>${chart.meta.market === "KRX" ? `${td.date.replaceAll("-", ".")}(${WEEK[day.getDay()]})` : `${td.date.slice(5).replace("-", "/")} 시작한 장`} ${p[0]}${i === pts.length - 1 ? " 기준" : ""}${({ pre: " 프리마켓", post: " 애프터마켓" })[p[4]] ?? ""}</span>
+    <span>${chart.meta.market === "KRX" ? `${td.date.replaceAll("-", ".")}(${WEEK[day.getDay()]})` : `${td.date.slice(5).replace("-", "/")} 시작한 장`} ${p[0]}${i === pts.length - 1 ? " 기준" : ""}${SESSION_NAMES[p[4]] ? ` ${SESSION_NAMES[p[4]]}` : ""}</span>
     <span><span class="k">시</span>${chartPrice(td.open, d)}</span>
     <span><span class="k">고</span><b class="up" style="font-size:inherit">${chartPrice(td.high.price, d)}</b> <span class="k">${td.high.time}</span></span>
     <span><span class="k">저</span><b class="down" style="font-size:inherit">${chartPrice(td.low.price, d)}</b> <span class="k">${td.low.time}</span></span>

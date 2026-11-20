@@ -53,13 +53,14 @@ def market_sessions(provider: object, keys: Iterable[Key]) -> dict[Key, str]:
     return method(keys) if method else {}
 
 
-# ── 미국 프리마켓·애프터마켓 ─────────────────────────
-# 한투 해외 현재가(HHDFS00000300)는 정규장 가격만 준다. 정규장 밖에서는 yfinance 1분봉(프리·애프터 포함)의
-# 마지막 거래가를 현재가로 쓴다. 장이 끝난 밤사이(20시~다음 날 4시, 뉴욕)와 주말에도 마지막 애프터마켓 가격을 쓴다.
+# ── 미국 프리마켓·애프터마켓·데이마켓 ─────────────────────
+# 한투 해외 현재가(HHDFS00000300)는 정규장 가격만 준다. 정규장 밖에서는 토스 시세(실시간, 데이마켓 포함)나
+# yfinance 1분봉(프리·애프터)의 마지막 거래가를 현재가로 쓴다 (sync.price_provider가 고른다).
 
 NEW_YORK = ZoneInfo("America/New_York")
 US_OPEN, US_CLOSE = dt.time(9, 30), dt.time(16, 0)
-EXTENDED_TTL = dt.timedelta(seconds=60)
+PRE_OPEN, POST_CLOSE = dt.time(4, 0), dt.time(20, 0)
+EXTENDED_TTL = dt.timedelta(seconds=20)
 
 _ext_lock = threading.Lock()
 _ext_cache: dict[str, tuple[dt.datetime, tuple[Decimal, str] | None]] = {}
@@ -72,12 +73,15 @@ def us_regular(now: dt.datetime | None = None) -> bool:
 
 
 def us_session_of(moment: dt.datetime) -> str | None:
-    """그 시각의 거래가 프리마켓("pre")·애프터마켓("post")인가. 정규장이면 None."""
+    """그 시각의 거래가 프리마켓("pre", 뉴욕 4:00~9:30)·애프터마켓("post", 16:00~20:00)·
+    데이마켓("day", 그 밖의 밤 시간 = 한국 낮)인가. 정규장이면 None."""
     t = moment.astimezone(NEW_YORK).time()
-    return "pre" if t < US_OPEN else "post" if t >= US_CLOSE else None
+    if US_OPEN <= t < US_CLOSE:
+        return None
+    return "pre" if PRE_OPEN <= t < US_OPEN else "post" if US_CLOSE <= t < POST_CLOSE else "day"
 
 
-def _download_extended(symbols: list[str]) -> dict[str, tuple[Decimal, str]]:
+def download_extended(symbols: list[str]) -> dict[str, tuple[Decimal, str]]:
     """마지막 거래일 1분봉(프리·애프터 포함)의 마지막 가격이 정규장 밖 거래면 (가격, 세션)."""
     import yfinance as yf
 
@@ -95,8 +99,8 @@ def _download_extended(symbols: list[str]) -> dict[str, tuple[Decimal, str]]:
     return result
 
 
-def extended_prices(symbols: Iterable[str], download=_download_extended) -> dict[str, tuple[Decimal, str]]:
-    """종목 → (정규장 밖 마지막 가격, "pre"/"post"). 종목마다 60초 캐시 (실패도 60초 동안 다시 묻지 않는다)."""
+def extended_prices(symbols: Iterable[str], download=download_extended) -> dict[str, tuple[Decimal, str]]:
+    """종목 → (정규장 밖 마지막 가격, "pre"/"post"/"day"). 종목마다 20초 캐시 (실패도 20초 동안 다시 묻지 않는다)."""
     symbols = list(symbols)
     now = dt.datetime.now()
     with _ext_lock:
@@ -111,9 +115,10 @@ def extended_prices(symbols: Iterable[str], download=_download_extended) -> dict
 
 
 class ExtendedHours:
-    """다른 시세 제공자를 감싸서, 미국 정규장 밖이면 미국 종목 현재가를 프리·애프터마켓 가격으로 바꾼다.
+    """다른 시세 제공자를 감싸서, 미국 정규장 밖이면 미국 종목 현재가를 프리·애프터·데이마켓 가격으로 바꾼다.
 
-    오늘 등락의 기준(전일 종가): 애프터마켓은 그대로(그날 정규장 + 애프터 변화), 프리마켓은 지난 정규장 종가.
+    오늘 등락의 기준은 토스 앱처럼 지난 정규장 종가(감싼 제공자의 '현재가')다. 그래서 애프터마켓 중 '오늘'은
+    정규장이 끝난 뒤의 변화만이다. (상장 첫날 종목은 전일 종가가 공모가라 그 기준이면 크게 틀렸다.)
     """
 
     def __init__(self, inner: PriceProvider, extended: Callable[[list[str]], dict[str, tuple[Decimal, str]]] = extended_prices,
@@ -132,8 +137,7 @@ class ExtendedHours:
         if us and not us_regular(self._now()):
             for symbol, (price, session) in self._extended(us).items():
                 key = (Market.US, symbol)
-                if session == "pre":  # 프리마켓: 지금 '현재가'인 지난 정규장 종가가 오늘의 기준
-                    prev[key] = prices[key]
+                prev[key] = prices[key]  # 지난 정규장 종가가 오늘의 기준 (토스와 같다)
                 prices[key] = price
                 self._sessions[key] = session
         self._prev.update(prev)

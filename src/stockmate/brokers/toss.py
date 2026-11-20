@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -215,6 +216,20 @@ class TossClient:
             power = self._get("/api/v1/buying-power", {"currency": currency}, account=True)
             cash[currency] = Decimal(power.get("cashBuyingPower") or 0)
         return TossBalance(rows, cash["KRW"], cash["USD"], skipped)
+
+    def prices(self, symbols: list[str]) -> dict[str, tuple[Decimal, dt.datetime]]:
+        """미국 종목 → (마지막 체결가, 체결 시각). 프리·애프터·데이마켓 거래도 실시간으로 들어 있다.
+
+        종목은 시세 조회용 표기(BRK-B)로 받고 돌려준다. 토스 표기는 BRK.B.
+        """
+        out: dict[str, tuple[Decimal, dt.datetime]] = {}
+        for i in range(0, len(symbols), 20):
+            chunk = {s.replace("-", "."): s for s in symbols[i : i + 20]}
+            for item in self._get("/api/v1/prices", {"symbols": ",".join(chunk)}) or []:
+                symbol = chunk.get(str(item.get("symbol", "")).upper())
+                if symbol and item.get("lastPrice") and item.get("timestamp"):
+                    out[symbol] = (Decimal(item["lastPrice"]), dt.datetime.fromisoformat(item["timestamp"]))
+        return out
 
     def usd_krw(self) -> Decimal:
         result = self._get("/api/v1/exchange-rate", {"baseCurrency": "USD", "quoteCurrency": "KRW"})

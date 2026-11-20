@@ -197,3 +197,18 @@ def test_order_busy_conflict_is_retried_and_errors_carry_status(tmp_path, monkey
     with pytest.raises(TossError) as e:
         client.place_limit_order("c2", "005930", "BUY", 1, D(70000))
     assert (e.value.status, e.value.code) == (422, "market-closed") and "주문을 받지 않았어요" in str(e.value)
+
+
+def test_prices_map_symbols_and_parse_time(tmp_path):
+    def fake(request):
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 60_000})
+        assert request.url.path == "/api/v1/prices" and request.url.params["symbols"] == "ANT,BRK.B"
+        return httpx.Response(200, json={"result": [
+            {"symbol": "ANT", "timestamp": "2026-11-20T10:07:41.000+09:00", "lastPrice": "93.5", "currency": "USD"},
+            {"symbol": "BRK.B", "timestamp": "2026-11-20T10:07:00.000+09:00", "lastPrice": "480.1", "currency": "USD"},
+        ]})  # fmt: skip
+
+    got = TossClient("id", "s", tmp_path / "t.json", transport=httpx.MockTransport(fake)).prices(["ANT", "BRK-B"])
+    assert got["ANT"][0] == D("93.5") and got["BRK-B"][0] == D("480.1")
+    assert got["ANT"][1].isoformat() == "2026-11-20T10:07:41+09:00"

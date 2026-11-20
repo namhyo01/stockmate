@@ -113,13 +113,15 @@ def test_us_regular_hours_in_new_york_time():
     assert not us_regular(at(2026, 11, 21, 12, 0))  # 토요일
     assert us_session_of(at(2026, 11, 19, 8, 0)) == "pre" and us_session_of(at(2026, 11, 19, 19, 30)) == "post"
     assert us_session_of(at(2026, 11, 19, 12, 0)) is None
+    assert us_session_of(at(2026, 11, 19, 20, 30)) == "day" and us_session_of(at(2026, 11, 20, 3, 0)) == "day"  # 한국 낮
 
 
 def test_after_market_price_replaces_regular_close():
     provider = ExtendedHours(Regular(), extended=lambda symbols: {"NVDA": (D("140"), "post")}, now=lambda: at(2026, 11, 19, 19, 30))
     prices = provider.last_prices([NVDA, SAMSUNG])
     assert prices == {NVDA: D("140"), SAMSUNG: D("70000")}  # 국내는 그대로
-    assert provider.previous_closes([NVDA]) == {NVDA: D("150")}  # 애프터: 어제 종가 대비 (정규장 + 애프터)
+    # 오늘 등락은 토스처럼 그날 정규장 종가 대비 (상장 첫날이면 전일 종가가 공모가라 크게 틀렸다)
+    assert provider.previous_closes([NVDA, SAMSUNG]) == {NVDA: D("146"), SAMSUNG: D("69000")}
     assert provider.sessions([NVDA, SAMSUNG]) == {NVDA: "post"}
 
 
@@ -160,4 +162,29 @@ def test_cached_prices_pass_sessions_through():
     cached = CachedPrices(lambda: ExtendedHours(Regular(), extended=lambda s: {"NVDA": (D("140"), "post")},
                                                 now=lambda: at(2026, 11, 19, 19, 30)), ttl=timedelta(seconds=60))  # fmt: skip
     assert cached.last_prices([NVDA]) == {NVDA: D("140")}
-    assert cached.sessions([NVDA]) == {NVDA: "post"} and cached.previous_closes([NVDA]) == {NVDA: D("150")}
+    assert cached.sessions([NVDA]) == {NVDA: "post"} and cached.previous_closes([NVDA]) == {NVDA: D("146")}
+
+
+def test_extended_download_prefers_toss_and_falls_back_to_yfinance():
+    from stockmate import sync
+
+    class Toss:
+        def prices(self, symbols):
+            return {"ANT": (D("93.42"), at(2026, 11, 19, 20, 7)),  # 데이마켓
+                    "VOO": (D("658"), at(2026, 11, 19, 15, 59))}  # 정규장 뒤 거래 없음  # fmt: skip
+
+    asked = []
+
+    def yf(symbols):
+        asked.append(symbols)
+        return {"JOBY": (D("3.9"), "post")}
+
+    got = sync.extended_download(["ANT", "VOO", "JOBY"], toss=Toss(), fallback=yf)
+    assert got == {"ANT": (D("93.42"), "day"), "JOBY": (D("3.9"), "post")}
+    assert asked == [["JOBY"]]  # 토스가 답한 종목은 yfinance에 묻지 않는다
+
+    class Broken:
+        def prices(self, symbols):
+            raise sync.TossError("막힘")
+
+    assert sync.extended_download(["ANT"], toss=Broken(), fallback=lambda s: {"ANT": (D("92.6"), "post")}) == {"ANT": (D("92.6"), "post")}

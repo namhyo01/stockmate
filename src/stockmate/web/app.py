@@ -583,17 +583,13 @@ def get_today_chart(market: str = Query(pattern="^(KRX|US|INDEX)$"), symbol: str
     else:
         symbol = portfolio.normalize_symbol(symbol)
         data = intraday.today(market, symbol)
-        if data and market == Market.KRX.value:  # 어제 종가는 일봉에서: 분봉 날짜 바로 전 거래일 종가
-            frame = technical.candles.get([(Market.KRX, symbol)]).get((Market.KRX, symbol))
+        if data:  # 어제 종가는 일봉에서: 분봉 날짜(미국은 그 장이 시작한 날) 바로 전 거래일 종가
+            key = (Market(market), symbol)
+            frame = technical.candles.get([key]).get(key)
             if frame is not None:
                 before = frame["Close"][frame.index < data["date"]]
                 if not before.empty:
                     data = {**data, "prev_close": float(before.iloc[-1]), "change_pct": (data["last"] / float(before.iloc[-1]) - 1) * 100}
-        elif data and market == Market.US.value:  # 미국은 대시보드와 같은 기준 (애프터: 어제 종가, 프리: 지난 정규장 종가)
-            key = (Market.US, symbol)
-            prices.last_prices([key])
-            if prev := prices.previous_closes([key]).get(key):
-                data = {**data, "prev_close": float(prev), "change_pct": (data["last"] / float(prev) - 1) * 100}
     if data is None:
         raise HTTPException(404, "오늘 분봉을 가져오지 못했어요.")
     return data
